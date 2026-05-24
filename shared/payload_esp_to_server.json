@@ -1,0 +1,32 @@
+{
+  "device_id": "ESP-1",
+  "building_id": "Gedung-A",
+  "floor": 1,
+  "room_id": "A1.01",
+  "timestamp": "2026-05-23T14:00:00Z",
+
+  "environment": {
+    "temperature": 0.0,
+    "humidity": 0.0,
+    "heat_index": 0.0,
+    "air_quality": 0.0,
+    "lux": 0.0,
+    "comfort_score": 0.0
+  },
+
+  "power": {
+    "voltage": 0.0,
+    "current": 0.0,
+    "power": 0.0,
+    "energy": 0.0,
+    "frequency": 0.0,
+    "pf": 0.0
+  },
+
+  "occupancy": {
+    "pir_triggered": false,
+    "estimated_people": 0,
+    "activity_score": 0.0,
+    "state": "EMPTY"
+  }
+}

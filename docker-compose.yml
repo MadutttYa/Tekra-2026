@@ -1,0 +1,56 @@
+services:
+
+  # ---------------------------------------------------------------------------
+  # Mosquitto — MQTT Broker
+  # ESP32 and FastAPI connect here to publish/subscribe
+  # ---------------------------------------------------------------------------
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: tekra-mosquitto
+    ports:
+      - "1883:1883"       # Standard MQTT port
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf   # our config (bind mount)
+      - mosquitto-data:/mosquitto/data                                # persistence (named volume)
+      - mosquitto-logs:/mosquitto/log                                 # logs (named volume)
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # QuestDB — Time-Series Database
+  # Stores all sensor readings from Telegraf
+  # ---------------------------------------------------------------------------
+  questdb:
+    image: questdb/questdb:latest
+    container_name: tekra-questdb
+    ports:
+      - "9000:9000"       # Web console — open http://localhost:9000 in your browser
+      - "9009:9009"       # InfluxDB Line Protocol — Telegraf writes here
+      - "8812:8812"       # PostgreSQL wire protocol — FastAPI reads here
+    volumes:
+      - questdb-data:/var/lib/questdb    # all database files (named volume)
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Telegraf — Data Pipeline Agent
+  # Subscribes to MQTT topics, parses JSON payloads, writes to QuestDB
+  # Must wait for both Mosquitto and QuestDB to be up first
+  # ---------------------------------------------------------------------------
+  telegraf:
+    image: telegraf:latest
+    container_name: tekra-telegraf
+    volumes:
+      - ./telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro   # :ro = read-only, telegraf never writes to this file
+    depends_on:
+      - mosquitto
+      - questdb
+    restart: unless-stopped
+
+# -----------------------------------------------------------------------------
+# Named volumes — Docker manages where these are stored on your disk
+# Data survives container restarts and "docker compose down"
+# Only "docker compose down -v" would delete them
+# -----------------------------------------------------------------------------
+volumes:
+  mosquitto-data:
+  mosquitto-logs:
+  questdb-data:
