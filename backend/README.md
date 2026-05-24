@@ -1,6 +1,6 @@
-# TEKRA Backend
+# Backend — Intelligent Smart Classroom System
 
-FastAPI backend untuk sistem TEKRA. Menangani penerimaan data sensor via MQTT, penyimpanan ke dua database (QuestDB + SQLite), auto-control berbasis jadwal, deteksi anomali, dan distribusi data real-time ke dashboard via WebSocket.
+FastAPI backend untuk sistem monitoring dan kontrol ruang kelas. Menangani penerimaan data sensor via MQTT, penyimpanan ke dua database (QuestDB + SQLite), auto-control berbasis jadwal, deteksi anomali, dan distribusi data real-time ke dashboard via WebSocket.
 
 ## Database
 

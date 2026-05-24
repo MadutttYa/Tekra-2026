@@ -55,8 +55,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="TEKRA Backend",
-    description="Smart classroom monitoring and control system",
+    title="Intelligent Smart Classroom System",
+    description="Real-Time Energy Monitoring and Environmental Safety",
     version="0.1.0",
     lifespan=lifespan,
 )

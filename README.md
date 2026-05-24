@@ -1,6 +1,6 @@
-# TEKRA — Sistem Monitoring & Kontrol Ruang Kelas Pintar
+# Intelligent Smart Classroom System for Real-Time Energy Monitoring and Environmental Safety
 
-TEKRA (*Teknologi Ruang Kelas Adaptif*) adalah sistem IoT untuk memantau kondisi ruang kelas secara real-time, mengotomasi manajemen energi berdasarkan jadwal kuliah, dan memberikan kontrol penuh kepada staf melalui dashboard terpusat.
+Sistem IoT untuk memantau kondisi ruang kelas secara real-time, mengotomasi manajemen energi berdasarkan jadwal kuliah, dan memberikan kontrol penuh kepada staf melalui dashboard terpusat.
 
 ---
 

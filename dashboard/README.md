@@ -1,6 +1,6 @@
-# TEKRA Dashboard
+# Dashboard — Intelligent Smart Classroom System
 
-Dashboard monitoring dan kontrol ruang kelas TEKRA. Diimplementasikan sebagai **single-file** (`index.html`) tanpa framework atau build step — cukup buka di browser.
+Dashboard monitoring dan kontrol ruang kelas. Diimplementasikan sebagai **single-file** (`index.html`) tanpa framework atau build step — cukup buka di browser.
 
 ---
 
