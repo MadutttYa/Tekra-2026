@@ -1,16 +1,10 @@
 import aiosqlite
 
-# SQLite database file — created automatically next to main.py
 DB_PATH = "tekra.db"
 
 
 async def init_db() -> None:
-    """
-    Create tables if they don't exist yet.
-    Called once on app startup.
-    """
     async with aiosqlite.connect(DB_PATH) as db:
-        # Rooms — one row per physical room
         await db.execute("""
             CREATE TABLE IF NOT EXISTS rooms (
                 room_id     TEXT PRIMARY KEY,
@@ -22,7 +16,6 @@ async def init_db() -> None:
             )
         """)
 
-        # Schedules — many rows per room (one per class slot)
         await db.execute("""
             CREATE TABLE IF NOT EXISTS schedules (
                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -36,7 +29,6 @@ async def init_db() -> None:
             )
         """)
 
-        # Notifications — anomaly alerts waiting for staff acknowledgement
         await db.execute("""
             CREATE TABLE IF NOT EXISTS notifications (
                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -49,16 +41,34 @@ async def init_db() -> None:
             )
         """)
 
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS holidays (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                date        TEXT NOT NULL UNIQUE,
+                name        TEXT NOT NULL,
+                created_at  TEXT NOT NULL
+            )
+        """)
+
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS bookings (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                room_id     TEXT NOT NULL,
+                date        TEXT NOT NULL,
+                start_time  TEXT NOT NULL,
+                end_time    TEXT NOT NULL,
+                requester   TEXT NOT NULL,
+                purpose     TEXT NOT NULL,
+                status      TEXT NOT NULL DEFAULT 'PENDING',
+                created_at  TEXT NOT NULL,
+                FOREIGN KEY (room_id) REFERENCES rooms(room_id)
+            )
+        """)
+
         await db.commit()
 
 
 async def get_sqlite():
-    """
-    Dependency — yields an open SQLite connection for the duration of a request.
-    Use with FastAPI's Depends():
-
-        db: aiosqlite.Connection = Depends(get_sqlite)
-    """
     async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row   # lets us access columns by name: row["room_id"]
+        db.row_factory = aiosqlite.Row
         yield db

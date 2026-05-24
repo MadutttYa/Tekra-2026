@@ -10,8 +10,8 @@
 #define MQTT_BROKER  "10.200.64.195"
 #define MQTT_PORT    1883
 
-#define ROOM_ID      "A1.01"
-#define DEVICE_ID    "ESP-SIM-1"
+#define ROOM_ID      "A1.02"
+#define DEVICE_ID    "ESP-SIM-2"
 #define BUILDING_ID  "Gedung-A"
 #define FLOOR        1
 

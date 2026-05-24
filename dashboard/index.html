@@ -1,0 +1,1414 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>TEKRA — Sistem Monitoring Kelas Pintar</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:      #0b1420;
+      --c-low:   #131c29;
+      --c-mid:   #17202d;
+      --c-high:  #222a38;
+      --c-top:   #2c3543;
+      --on:      #dae3f5;
+      --on-v:    #bdc8d2;
+      --outline: #87929b;
+      --out-v:   #3e4850;
+      --primary: #8bd1ff;
+      --on-pri:  #00344c;
+      --second:  #ccbeff;
+      --tert:    #3fe48a;
+      --error:   #ffb4ab;
+      --err-c:   #93000a;
+      --warn:    #fbbf24;
+      --glass:   rgba(24,28,37,.70);
+      --gb:      rgba(139,209,255,.08);
+      --sw: 260px;
+      --pad: 28px;
+      --rc: 12px; --rb: 8px; --rf: 9999px;
+    }
+    html, body { height:100%; background:var(--bg); color:var(--on); font-family:'Inter',system-ui,sans-serif; -webkit-font-smoothing:antialiased; }
+    .app { display:flex; height:100vh; overflow:hidden; }
+
+    /* ══ SIDEBAR ══ */
+    .sidebar {
+      width:var(--sw); min-width:var(--sw); height:100vh;
+      display:flex; flex-direction:column; padding:20px 12px;
+      background:var(--glass); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px);
+      border-right:1px solid var(--gb); overflow-y:auto; z-index:10;
+    }
+    .brand { display:flex; align-items:center; gap:10px; padding:6px 8px 18px; border-bottom:1px solid var(--out-v); margin-bottom:10px; }
+    .brand-icon { width:32px; height:32px; border-radius:var(--rb); background:var(--primary); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+    .brand-icon svg { width:17px; height:17px; }
+    .brand-name { font-size:17px; font-weight:700; letter-spacing:-.01em; }
+    .brand-sub  { font-size:10px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--outline); }
+    .nav-lbl { font-size:10px; font-weight:600; letter-spacing:.07em; text-transform:uppercase; color:var(--outline); padding:10px 8px 4px; }
+    .nav-item {
+      position:relative; display:flex; align-items:center; gap:10px;
+      padding:9px 10px; border-radius:var(--rb); cursor:pointer;
+      color:var(--on-v); font-size:13px; font-weight:500;
+      transition:background .14s, color .14s; user-select:none;
+    }
+    .nav-item:hover  { background:rgba(139,209,255,.05); color:var(--on); }
+    .nav-item.active { background:rgba(139,209,255,.10); color:var(--primary); }
+    .nav-item.active::before { content:''; position:absolute; left:0; top:20%; bottom:20%; width:3px; background:var(--primary); border-radius:0 3px 3px 0; }
+    .nav-item svg { width:17px; height:17px; fill:currentColor; flex-shrink:0; opacity:.75; }
+    .nav-item.active svg { opacity:1; }
+    .nav-badge { margin-left:auto; background:rgba(255,180,171,.18); color:var(--error); font-size:10px; font-weight:700; padding:2px 7px; border-radius:var(--rf); }
+    .sb-spacer { flex:1; }
+    .sb-foot { border-top:1px solid var(--out-v); padding-top:12px; display:flex; flex-direction:column; gap:7px; }
+    .sys-row { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--on-v); }
+    .live-dot { width:7px; height:7px; border-radius:50%; background:var(--outline); flex-shrink:0; transition:background .3s, box-shadow .3s; }
+    .live-dot.on { background:var(--tert); box-shadow:0 0 0 3px rgba(63,228,138,.15); animation:live-p 2.4s ease-in-out infinite; }
+    @keyframes live-p { 0%,100%{box-shadow:0 0 0 3px rgba(63,228,138,.15)} 50%{box-shadow:0 0 0 5px rgba(63,228,138,.04)} }
+
+    /* ══ MAIN ══ */
+    .main { flex:1; overflow-y:auto; display:flex; flex-direction:column; }
+    .topbar {
+      position:sticky; top:0; z-index:5;
+      display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+      padding:14px var(--pad);
+      background:rgba(11,20,32,.9); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
+      border-bottom:1px solid var(--out-v);
+    }
+    .topbar-title { font-size:19px; font-weight:600; letter-spacing:-.01em; }
+    .topbar-right  { display:flex; align-items:center; gap:8px; margin-left:auto; flex-wrap:wrap; }
+    #ws-status-label { font-size:12px; color:var(--outline); }
+
+    /* ══ CONTENT ══ */
+    .content { padding:var(--pad); display:flex; flex-direction:column; gap:18px; }
+    .section { display:none; flex-direction:column; gap:18px; }
+    .section.active { display:flex; }
+
+    /* ══ CARDS ══ */
+    .card {
+      background:var(--glass); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
+      border:1px solid var(--gb); border-radius:var(--rc); padding:18px;
+      transition:border-color .2s, box-shadow .2s;
+    }
+    .card:hover { border-color:rgba(139,209,255,.14); }
+    .section-label { font-size:11px; font-weight:600; letter-spacing:.07em; text-transform:uppercase; color:var(--outline); margin-bottom:14px; }
+    .row2 { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+    .row3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:18px; }
+    @media(max-width:1100px) { .row2,.row3 { grid-template-columns:1fr; } }
+
+    /* ══ BADGES ══ */
+    .badge { padding:3px 10px; border-radius:var(--rf); font-size:11px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; }
+    .b-auto     { background:rgba(139,209,255,.10); color:var(--primary); border:1px solid rgba(139,209,255,.22); }
+    .b-override { background:rgba(251,191,36,.10);  color:var(--warn);    border:1px solid rgba(251,191,36,.28); }
+    .b-holiday  { background:rgba(255,180,171,.10); color:var(--error);   border:1px solid rgba(255,180,171,.22); }
+    .b-active   { background:rgba(63,228,138,.10);  color:var(--tert);    border:1px solid rgba(63,228,138,.22); }
+    .b-dormant  { background:rgba(135,146,155,.10); color:var(--outline); border:1px solid rgba(135,146,155,.18); }
+    .b-occupied { background:rgba(63,228,138,.10);  color:var(--tert);    border:1px solid rgba(63,228,138,.22); }
+    .b-empty    { background:rgba(135,146,155,.10); color:var(--outline); border:1px solid rgba(135,146,155,.18); }
+    .b-transitioning { background:rgba(251,191,36,.08); color:var(--warn); border:1px solid rgba(251,191,36,.2); }
+    .b-pending  { background:rgba(251,191,36,.12); color:var(--warn);  border:1px solid rgba(251,191,36,.28); }
+    .b-approved { background:rgba(63,228,138,.12); color:var(--tert);  border:1px solid rgba(63,228,138,.28); }
+    .b-rejected { background:rgba(255,180,171,.10); color:var(--error); border:1px solid rgba(255,180,171,.22); }
+
+    /* ══ BUTTONS ══ */
+    button {
+      padding:7px 16px; border-radius:var(--rb); border:1px solid var(--out-v);
+      background:rgba(255,255,255,.03); color:var(--on-v);
+      font-family:'Inter',sans-serif; font-size:13px; font-weight:600; letter-spacing:.02em;
+      cursor:pointer; transition:all .14s;
+    }
+    button:hover:not(:disabled) { border-color:var(--primary); color:var(--primary); background:rgba(139,209,255,.06); }
+    button:disabled { opacity:.28; cursor:not-allowed; }
+    .btn-pri  { background:var(--primary); color:var(--on-pri); border-color:var(--primary); }
+    .btn-pri:hover:not(:disabled)  { background:#a3d9ff; border-color:#a3d9ff; color:var(--on-pri); }
+    .btn-ok   { background:rgba(63,228,138,.10); border-color:rgba(63,228,138,.3); color:var(--tert); }
+    .btn-ok:hover:not(:disabled)   { background:rgba(63,228,138,.18); border-color:var(--tert); }
+    .btn-del  { background:rgba(255,180,171,.07); border-color:rgba(255,180,171,.25); color:var(--error); }
+    .btn-del:hover:not(:disabled)  { background:rgba(255,180,171,.15); border-color:var(--error); }
+    .btn-mode-on     { background:rgba(139,209,255,.13); border-color:var(--primary); color:var(--primary); }
+    .btn-override-on { background:rgba(251,191,36,.12);  border-color:var(--warn);    color:var(--warn); }
+    .btn-on  { background:rgba(63,228,138,.10);  border-color:var(--tert);  color:var(--tert); }
+    .btn-off { background:rgba(255,180,171,.08); border-color:var(--error); color:var(--error); }
+    .btn-emergency { padding:9px 20px; background:rgba(255,180,171,.06); border-color:rgba(255,180,171,.25); color:var(--error); }
+    .btn-emergency:hover:not(:disabled) { background:rgba(255,180,171,.14); border-color:var(--error); }
+    .btn-emergency.armed { background:var(--err-c); border-color:var(--error); color:#fff; animation:emerg 1s ease-in-out infinite; }
+    @keyframes emerg { 0%,100%{box-shadow:0 0 8px rgba(255,180,171,.4)} 50%{box-shadow:0 0 22px rgba(255,180,171,.6)} }
+    .btn-row { display:flex; gap:7px; }
+
+    /* ══ FORM ══ */
+    .form-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:12px; }
+    .fg { display:flex; flex-direction:column; gap:5px; }
+    .fl { font-size:11px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; color:var(--on-v); }
+    .fi {
+      padding:8px 11px; border-radius:var(--rb);
+      border:1px solid var(--out-v); background:var(--c-low); color:var(--on);
+      font-family:'Inter',sans-serif; font-size:13px; transition:border-color .14s;
+    }
+    .fi:focus { outline:none; border-color:var(--primary); box-shadow:0 0 0 2px rgba(139,209,255,.12); }
+    .fi option { background:var(--c-mid); }
+
+    /* ══ HOME: aggregate stats ══ */
+    .agg-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; }
+    @media(max-width:900px) { .agg-grid { grid-template-columns:repeat(2,1fr); } }
+    .agg-card { position:relative; overflow:hidden; }
+    .agg-card::after { content:''; position:absolute; top:0; left:0; right:0; height:2px; background:linear-gradient(90deg,var(--acc,var(--primary)),transparent); opacity:.6; }
+    .agg-card:nth-child(1){--acc:#fbbf24}
+    .agg-card:nth-child(2){--acc:var(--tert)}
+    .agg-card:nth-child(3){--acc:var(--primary)}
+    .agg-card:nth-child(4){--acc:var(--error)}
+    .agg-label { font-size:10px; font-weight:600; letter-spacing:.07em; text-transform:uppercase; color:var(--on-v); margin-bottom:8px; }
+    .agg-value { font-size:26px; font-weight:700; line-height:1; letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
+    .agg-unit  { font-size:13px; font-weight:400; color:var(--on-v); margin-left:2px; }
+    .agg-sub   { font-size:11px; color:var(--on-v); margin-top:5px; }
+    .agg-pulse { position:absolute; top:12px; right:12px; width:6px; height:6px; border-radius:50%; background:var(--tert); animation:live-p 2.4s ease-in-out infinite; }
+
+    /* ══ CALENDAR ══ */
+    .cal-wrap { display:grid; grid-template-columns:auto 1fr; gap:18px; }
+    @media(max-width:800px) { .cal-wrap { grid-template-columns:1fr; } }
+    .cal-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+    .cal-title  { font-size:15px; font-weight:600; }
+    .cal-nav    { padding:4px 10px; }
+    .cal-grid   { display:grid; grid-template-columns:repeat(7,1fr); gap:3px; }
+    .cal-dow    { font-size:10px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; color:var(--outline); text-align:center; padding:4px 0; }
+    .cal-day    {
+      aspect-ratio:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+      border-radius:var(--rb); cursor:pointer; font-size:12px; font-weight:500;
+      position:relative; transition:background .12s; gap:2px;
+    }
+    .cal-day:hover  { background:rgba(139,209,255,.08); }
+    .cal-day.today  { background:rgba(139,209,255,.14); color:var(--primary); font-weight:700; }
+    .cal-day.selected { background:rgba(139,209,255,.22); color:var(--primary); }
+    .cal-day.other-month { opacity:.35; }
+    .cal-day.holiday-day { background:rgba(255,180,171,.10); color:var(--error); }
+    .cal-dots { display:flex; gap:2px; }
+    .cal-dot  { width:4px; height:4px; border-radius:50%; }
+    .dot-class   { background:var(--primary); }
+    .dot-booking { background:var(--tert); }
+    .dot-holiday { background:var(--error); }
+    .cal-events { min-width:220px; }
+    .cal-events-title { font-size:13px; font-weight:600; color:var(--on-v); margin-bottom:10px; }
+    .event-item { padding:8px 12px; border-radius:8px; background:var(--c-high); border-left:3px solid var(--primary); margin-bottom:6px; font-size:12px; }
+    .event-item.ev-holiday { border-color:var(--error); }
+    .event-item.ev-booking { border-color:var(--tert); }
+    .event-time   { font-size:11px; font-weight:600; color:var(--primary); font-variant-numeric:tabular-nums; }
+    .event-title  { color:var(--on); font-weight:500; margin-top:1px; }
+    .event-meta   { font-size:11px; color:var(--on-v); margin-top:1px; }
+
+    /* ══ DETAIL: room cards ══ */
+    .room-cards-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:14px; }
+    .room-card {
+      padding:16px; border-radius:var(--rc); border:2px solid var(--out-v);
+      background:var(--c-mid); cursor:pointer; transition:all .18s;
+    }
+    .room-card:hover  { border-color:rgba(139,209,255,.3); background:var(--c-high); }
+    .room-card.active { border-color:var(--primary); background:rgba(139,209,255,.06); }
+    .rc-header { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:10px; }
+    .rc-id   { font-size:18px; font-weight:700; letter-spacing:-.01em; }
+    .rc-name { font-size:11px; color:var(--on-v); margin-top:2px; }
+    .rc-metrics { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:10px; }
+    .rc-metric  { }
+    .rc-m-lbl { font-size:10px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; color:var(--on-v); }
+    .rc-m-val { font-size:15px; font-weight:700; font-variant-numeric:tabular-nums; margin-top:1px; }
+
+    /* ══ DETAIL: sensor panel ══ */
+    .detail-panel { display:none; flex-direction:column; gap:16px; }
+    .detail-panel.open { display:flex; }
+    .detail-header { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+    .detail-room-id { font-size:20px; font-weight:700; letter-spacing:-.01em; }
+    .detail-close { margin-left:auto; font-size:13px; padding:5px 14px; }
+
+    .stat6 { display:grid; grid-template-columns:repeat(6,1fr); gap:12px; }
+    @media(max-width:1300px) { .stat6 { grid-template-columns:repeat(3,1fr); } }
+    @media(max-width:700px)  { .stat6 { grid-template-columns:repeat(2,1fr); } }
+    .sc { position:relative; overflow:hidden; }
+    .sc::after { content:''; position:absolute; top:0; left:0; right:0; height:2px; background:linear-gradient(90deg,var(--acc,var(--primary)),transparent); opacity:.5; }
+    .sc:nth-child(1){--acc:#f97316} .sc:nth-child(2){--acc:var(--primary)}
+    .sc:nth-child(3){--acc:var(--second)} .sc:nth-child(4){--acc:var(--tert)}
+    .sc:nth-child(5){--acc:#fbbf24} .sc:nth-child(6){--acc:var(--tert)}
+    .sc-pulse { position:absolute; top:12px; right:12px; width:6px; height:6px; border-radius:50%; background:var(--tert); animation:live-p 2.4s ease-in-out infinite; }
+    .sc-lbl { font-size:10px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--on-v); margin-bottom:8px; }
+    .sc-val { font-size:26px; font-weight:700; line-height:1; letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
+    .sc-unit { font-size:13px; font-weight:400; color:var(--on-v); margin-left:2px; }
+    .sc-sub  { font-size:11px; color:var(--on-v); margin-top:6px; font-variant-numeric:tabular-nums; }
+
+    .charts2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+    @media(max-width:900px) { .charts2 { grid-template-columns:1fr; } }
+    .chart-full { grid-column:1/-1; }
+    .chart-title { font-size:10px; font-weight:600; letter-spacing:.07em; text-transform:uppercase; color:var(--outline); margin-bottom:10px; }
+    .chart-wrap  { height:170px; position:relative; }
+
+    .ctrl-flex { display:flex; flex-wrap:wrap; gap:20px; align-items:flex-start; }
+    .ctrl-g    { display:flex; flex-direction:column; gap:7px; }
+    .ctrl-lbl  { font-size:10px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--on-v); }
+    .sp-row    { display:flex; align-items:center; gap:10px; }
+    .sp-row input[type=range] {
+      -webkit-appearance:none; appearance:none; width:100px; height:3px;
+      border-radius:2px; background:var(--out-v); outline:none; cursor:pointer;
+    }
+    .sp-row input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance:none; width:13px; height:13px; border-radius:50%;
+      background:var(--primary); box-shadow:0 0 5px rgba(139,209,255,.5); cursor:pointer;
+    }
+    .sp-val { font-size:13px; font-weight:700; color:var(--primary); min-width:40px; font-variant-numeric:tabular-nums; }
+
+    /* ══ SCHEDULE ══ */
+    .sched-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:8px; }
+    @media(max-width:1100px) { .sched-grid { grid-template-columns:repeat(4,1fr); } }
+    .day-hdr { font-size:10px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--on-v); padding-bottom:7px; border-bottom:1px solid var(--out-v); margin-bottom:7px; }
+    .day-hdr.today-col { color:var(--primary); }
+    .slot-c { background:var(--c-high); border:1px solid var(--out-v); border-radius:8px; padding:9px 10px; margin-bottom:7px; position:relative; }
+    .slot-time { font-size:11px; font-weight:600; color:var(--primary); font-variant-numeric:tabular-nums; }
+    .slot-subj { font-size:12px; font-weight:600; color:var(--on); margin-top:2px; }
+    .slot-lect { font-size:11px; color:var(--on-v); margin-top:1px; }
+    .slot-del  { position:absolute; top:5px; right:5px; padding:2px 7px; font-size:10px; border:none; background:transparent; color:var(--outline); }
+    .slot-del:hover:not(:disabled) { color:var(--error); background:transparent; border:none; }
+    .day-empty { font-size:11px; color:var(--outline); text-align:center; padding:14px 0; }
+
+    /* ══ BOOKINGS ══ */
+    .bk-list { display:flex; flex-direction:column; gap:9px; }
+    .bk-item { display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:13px 15px; border-radius:10px; background:var(--c-high); border:1px solid var(--out-v); }
+    .bk-info  { flex:1; min-width:160px; }
+    .bk-title { font-size:13px; font-weight:600; color:var(--on); display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
+    .bk-meta  { font-size:11px; color:var(--on-v); margin-top:3px; }
+    .bk-acts  { display:flex; gap:7px; flex-shrink:0; }
+
+    /* ══ HOLIDAYS ══ */
+    .hl-list { display:flex; flex-direction:column; gap:8px; }
+    .hl-item { display:flex; align-items:center; gap:12px; padding:11px 14px; border-radius:10px; background:var(--c-high); border:1px solid var(--out-v); }
+    .hl-date { font-size:12px; font-weight:700; color:var(--primary); min-width:96px; font-variant-numeric:tabular-nums; }
+    .hl-name { font-size:13px; color:var(--on); flex:1; }
+
+    /* ══ NOTIF ══ */
+    .notif-list { display:flex; flex-direction:column; gap:7px; max-height:200px; overflow-y:auto; }
+    .notif-item { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:9px 13px; border-radius:8px; font-size:12px; }
+    .notif-item.WARNING  { background:rgba(251,191,36,.07);  border-left:3px solid var(--warn); }
+    .notif-item.CRITICAL { background:rgba(255,180,171,.07); border-left:3px solid var(--error); }
+    .notif-room { font-size:10px; font-weight:700; color:var(--outline); }
+    .empty-state { color:var(--outline); font-size:12px; padding:18px 0; text-align:center; }
+
+    /* ══ ROOM SELECTOR (for jadwal/peminjaman) ══ */
+    .room-sel-row { display:flex; align-items:center; gap:10px; margin-bottom:2px; }
+    .room-sel-lbl { font-size:11px; font-weight:600; color:var(--on-v); }
+
+    /* ══ SCROLLBAR ══ */
+    ::-webkit-scrollbar { width:4px; height:4px; }
+    ::-webkit-scrollbar-track { background:transparent; }
+    ::-webkit-scrollbar-thumb { background:var(--out-v); border-radius:2px; }
+  </style>
+</head>
+<body>
+<div class="app">
+
+<!-- ══════════ SIDEBAR ══════════ -->
+<aside class="sidebar">
+  <div class="brand">
+    <div class="brand-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#00344c" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+      </svg>
+    </div>
+    <div>
+      <div class="brand-name">TEKRA</div>
+      <div class="brand-sub">Smart Classroom</div>
+    </div>
+  </div>
+
+  <div class="nav-lbl">Navigasi</div>
+  <div class="nav-item active"   onclick="showSection('home',this)">
+    <svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>Dasbor Utama
+  </div>
+  <div class="nav-item"          onclick="showSection('detail',this)">
+    <svg viewBox="0 0 24 24"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>Tampilan Detail
+  </div>
+  <div class="nav-item"          onclick="showSection('jadwal',this)">
+    <svg viewBox="0 0 24 24"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM7 10h5v5H7z"/></svg>Jadwal Kuliah
+  </div>
+  <div class="nav-item"          onclick="showSection('peminjaman',this)">
+    <svg viewBox="0 0 24 24"><path d="M17 12h-5v5h5v-5zM16 1v2H8V1H6v2H5c-1.11 0-2 .9-2 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-1V1h-2zm3 18H5V8h14v11z"/></svg>Peminjaman<span class="nav-badge" id="pending-badge" style="display:none">0</span>
+  </div>
+  <div class="nav-item"          onclick="showSection('holiday',this)">
+    <svg viewBox="0 0 24 24"><path d="M17 12h-5v5h5v-5zM16 1v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-1V1h-2zm3 18H5V8h14v11z"/></svg>Hari Libur
+  </div>
+
+  <div class="sb-spacer"></div>
+  <div class="sb-foot">
+    <div class="sys-row"><div class="live-dot" id="ws-dot"></div><span id="ws-label">Menghubungkan…</span></div>
+    <div class="sys-row" style="color:var(--outline);font-size:11px">TEKRA v0.1.0 · Gedung A</div>
+  </div>
+</aside>
+
+<!-- ══════════ MAIN ══════════ -->
+<main class="main">
+  <div class="topbar">
+    <div class="topbar-title" id="page-title">Dasbor Utama</div>
+    <div class="topbar-right">
+      <span id="ctx-badge" style="display:none" class="badge b-active"></span>
+      <div class="sys-row"><div class="live-dot" id="ws-dot2" style="width:6px;height:6px"></div><span id="ws-status-label" style="font-size:12px;color:var(--outline)">–</span></div>
+    </div>
+  </div>
+
+  <div class="content">
+
+    <!-- ═══════ HOME ═══════ -->
+    <div class="section active" id="section-home">
+
+      <!-- Aggregate stats -->
+      <div class="agg-grid">
+        <div class="card agg-card">
+          <div class="agg-pulse"></div>
+          <div class="agg-label">Rata-rata Daya</div>
+          <div class="agg-value" id="agg-power">–<span class="agg-unit">W</span></div>
+          <div class="agg-sub" id="agg-power-sub">Semua ruangan aktif</div>
+        </div>
+        <div class="card agg-card">
+          <div class="agg-pulse"></div>
+          <div class="agg-label">Rata-rata Comfort</div>
+          <div class="agg-value" id="agg-comfort">–<span class="agg-unit">/100</span></div>
+          <div class="agg-sub" id="agg-comfort-sub">Indeks kenyamanan</div>
+        </div>
+        <div class="card agg-card">
+          <div class="agg-pulse"></div>
+          <div class="agg-label">Ruangan Aktif</div>
+          <div class="agg-value" id="agg-active">–<span class="agg-unit">ruang</span></div>
+          <div class="agg-sub" id="agg-active-sub">Dari total terdaftar</div>
+        </div>
+        <div class="card agg-card">
+          <div class="agg-pulse"></div>
+          <div class="agg-label">Notifikasi Aktif</div>
+          <div class="agg-value" id="agg-alerts" style="color:var(--error)">–</div>
+          <div class="agg-sub">Menunggu konfirmasi</div>
+        </div>
+      </div>
+
+      <!-- Calendar + Events -->
+      <div class="card">
+        <div class="section-label">Kalender & Jadwal</div>
+        <div class="cal-wrap">
+          <!-- Mini calendar -->
+          <div>
+            <div class="cal-header">
+              <button class="cal-nav" onclick="calNav(-1)">‹</button>
+              <div class="cal-title" id="cal-title"></div>
+              <button class="cal-nav" onclick="calNav(+1)">›</button>
+            </div>
+            <div class="cal-grid" id="cal-grid">
+              <!-- rendered by JS -->
+            </div>
+          </div>
+          <!-- Events for selected day -->
+          <div class="cal-events">
+            <div class="cal-events-title" id="cal-events-title">Pilih tanggal…</div>
+            <div id="cal-events-list"><div class="empty-state">Klik tanggal untuk melihat jadwal.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom row: quick booking + notifications -->
+      <div class="row2">
+        <!-- Quick booking -->
+        <div class="card">
+          <div class="section-label">Ajukan Peminjaman</div>
+          <div class="form-grid">
+            <div class="fg">
+              <label class="fl">Ruangan</label>
+              <select class="fi" id="qb-room"></select>
+            </div>
+            <div class="fg">
+              <label class="fl">Tanggal</label>
+              <input class="fi" type="date" id="qb-date">
+            </div>
+            <div class="fg">
+              <label class="fl">Jam Mulai</label>
+              <input class="fi" type="time" id="qb-start" value="13:00">
+            </div>
+            <div class="fg">
+              <label class="fl">Jam Selesai</label>
+              <input class="fi" type="time" id="qb-end" value="15:00">
+            </div>
+            <div class="fg">
+              <label class="fl">Peminjam</label>
+              <input class="fi" type="text" id="qb-requester" placeholder="Dr. Sari / HMJ IF">
+            </div>
+            <div class="fg">
+              <label class="fl">Keperluan</label>
+              <input class="fi" type="text" id="qb-purpose" placeholder="Seminar TA">
+            </div>
+            <div class="fg" style="grid-column:1/-1">
+              <label class="fl" style="opacity:0">Aksi</label>
+              <button class="btn-pri" style="width:fit-content" onclick="quickBooking()">Kirim Permohonan</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Notifications -->
+        <div class="card">
+          <div class="section-label">Notifikasi Anomali</div>
+          <div class="notif-list" id="notif-list">
+            <div class="empty-state">Tidak ada notifikasi aktif.</div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /home -->
+
+    <!-- ═══════ DETAIL VIEW ═══════ -->
+    <div class="section" id="section-detail">
+      <div class="card">
+        <div class="section-label" id="bldg-label">Pilih Ruangan</div>
+        <div class="room-cards-grid" id="room-cards"></div>
+      </div>
+
+      <!-- Detail panel (hidden until room selected) -->
+      <div class="detail-panel" id="detail-panel">
+
+        <div class="card">
+          <div class="detail-header">
+            <div>
+              <div class="detail-room-id" id="d-room-id">–</div>
+              <div style="font-size:12px;color:var(--on-v);margin-top:3px" id="d-room-name">–</div>
+            </div>
+            <span id="d-mode-badge" class="badge b-auto" style="margin-left:12px">AUTO</span>
+            <span id="d-occ-badge"  class="badge b-empty" style="margin-left:6px">EMPTY</span>
+            <span id="d-ctx-badge"  class="badge b-active" style="margin-left:6px;display:none"></span>
+            <span id="d-update"     style="font-size:11px;color:var(--outline);margin-left:auto;font-variant-numeric:tabular-nums">–</span>
+            <button class="detail-close btn-del" onclick="closeDetail()">✕ Tutup</button>
+          </div>
+        </div>
+
+        <!-- Sensor values -->
+        <div class="card">
+          <div class="section-label">Sensor Langsung</div>
+          <div class="stat6">
+            <div class="card sc"><div class="sc-pulse"></div><div class="sc-lbl">Suhu</div><div class="sc-val" id="d-temp">–<span class="sc-unit">°C</span></div><div class="sc-sub" id="d-hi">Heat index –</div></div>
+            <div class="card sc"><div class="sc-pulse"></div><div class="sc-lbl">Kelembaban</div><div class="sc-val" id="d-hum">–<span class="sc-unit">%</span></div><div class="sc-sub">Relative humidity</div></div>
+            <div class="card sc"><div class="sc-pulse"></div><div class="sc-lbl">Kualitas Udara</div><div class="sc-val" id="d-aq">–<span class="sc-unit">ppm</span></div><div class="sc-sub" id="d-aq-s">–</div></div>
+            <div class="card sc"><div class="sc-pulse"></div><div class="sc-lbl">Comfort</div><div class="sc-val" id="d-comfort">–</div><div class="sc-sub" id="d-lux">Lux: –</div></div>
+            <div class="card sc"><div class="sc-pulse"></div><div class="sc-lbl">Daya</div><div class="sc-val" id="d-power">–<span class="sc-unit">W</span></div><div class="sc-sub" id="d-energy">– kWh</div></div>
+            <div class="card sc"><div class="sc-pulse"></div><div class="sc-lbl">Est. Orang</div><div class="sc-val" id="d-people">–</div><div class="sc-sub" id="d-act">Activity: –</div></div>
+          </div>
+        </div>
+
+        <!-- Charts -->
+        <div class="card">
+          <div class="charts2">
+            <div><div class="chart-title">Suhu &amp; Kelembaban</div><div class="chart-wrap"><canvas id="d-chart-env"></canvas></div></div>
+            <div><div class="chart-title">Kualitas Udara &amp; Comfort</div><div class="chart-wrap"><canvas id="d-chart-air"></canvas></div></div>
+            <div class="chart-full"><div class="chart-title">Konsumsi Daya (W)</div><div class="chart-wrap"><canvas id="d-chart-power"></canvas></div></div>
+          </div>
+        </div>
+
+        <!-- Control panel -->
+        <div class="card">
+          <div class="section-label">Kontrol Ruangan</div>
+          <div class="ctrl-flex">
+            <div class="ctrl-g">
+              <div class="ctrl-lbl">Mode</div>
+              <div class="btn-row">
+                <button id="d-btn-auto"     onclick="dSetMode('AUTO')">AUTO</button>
+                <button id="d-btn-override" onclick="dSetMode('OVERRIDE')">OVERRIDE</button>
+              </div>
+            </div>
+            <div class="ctrl-g">
+              <div class="ctrl-lbl">Lampu</div>
+              <div class="btn-row">
+                <button id="d-btn-lo" onclick="dCmd({lights:true})"  disabled>ON</button>
+                <button id="d-btn-lf" onclick="dCmd({lights:false})" disabled>OFF</button>
+              </div>
+            </div>
+            <div class="ctrl-g">
+              <div class="ctrl-lbl">AC</div>
+              <div class="btn-row">
+                <button id="d-btn-ao" onclick="dCmd({ac:true})"  disabled>ON</button>
+                <button id="d-btn-af" onclick="dCmd({ac:false})" disabled>OFF</button>
+              </div>
+            </div>
+            <div class="ctrl-g">
+              <div class="ctrl-lbl">Setpoint AC</div>
+              <div class="sp-row">
+                <input type="range" id="d-sp" min="16" max="30" value="24" oninput="document.getElementById('d-sp-v').textContent=this.value+'°C'">
+                <span class="sp-val" id="d-sp-v">24°C</span>
+                <button onclick="dSendSP()">Set</button>
+              </div>
+            </div>
+            <div class="ctrl-g" style="margin-left:auto">
+              <div class="ctrl-lbl">Darurat</div>
+              <button class="btn-emergency" id="d-btn-master" onclick="dToggleMaster()">⚠ Master Relay</button>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /detail-panel -->
+    </div><!-- /detail -->
+
+    <!-- ═══════ JADWAL ═══════ -->
+    <div class="section" id="section-jadwal">
+      <div class="card">
+        <div class="room-sel-row">
+          <span class="room-sel-lbl">Ruangan:</span>
+          <select class="fi" id="sched-room-sel" style="width:auto;padding:6px 10px" onchange="loadSchedules()"></select>
+        </div>
+      </div>
+      <div class="card">
+        <div class="section-label">Tambah Slot Jadwal</div>
+        <div class="form-grid">
+          <div class="fg"><label class="fl">Hari</label>
+            <select class="fi" id="f-day">
+              <option value="0">Senin</option><option value="1">Selasa</option>
+              <option value="2">Rabu</option><option value="3">Kamis</option>
+              <option value="4">Jumat</option><option value="5">Sabtu</option>
+              <option value="6">Minggu</option>
+            </select>
+          </div>
+          <div class="fg"><label class="fl">Jam Mulai</label><input class="fi" type="time" id="f-start" value="08:00"></div>
+          <div class="fg"><label class="fl">Jam Selesai</label><input class="fi" type="time" id="f-end" value="10:00"></div>
+          <div class="fg"><label class="fl">Mata Kuliah</label><input class="fi" type="text" id="f-subject" placeholder="Pemrograman Web"></div>
+          <div class="fg"><label class="fl">Dosen</label><input class="fi" type="text" id="f-lecturer" placeholder="Dr. Budi"></div>
+          <div class="fg" style="justify-content:flex-end">
+            <label class="fl" style="opacity:0">Aksi</label>
+            <button class="btn-pri" onclick="addSchedule()">+ Tambah</button>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="section-label">Jadwal Mingguan</div>
+        <div class="sched-grid" id="sched-grid"></div>
+      </div>
+    </div>
+
+    <!-- ═══════ PEMINJAMAN ═══════ -->
+    <div class="section" id="section-peminjaman">
+      <div class="card">
+        <div class="room-sel-row">
+          <span class="room-sel-lbl">Ruangan:</span>
+          <select class="fi" id="bk-room-sel" style="width:auto;padding:6px 10px" onchange="loadBookings()"></select>
+        </div>
+      </div>
+      <div class="card">
+        <div class="section-label">Ajukan Peminjaman</div>
+        <div class="form-grid">
+          <div class="fg"><label class="fl">Tanggal</label><input class="fi" type="date" id="b-date"></div>
+          <div class="fg"><label class="fl">Jam Mulai</label><input class="fi" type="time" id="b-start" value="13:00"></div>
+          <div class="fg"><label class="fl">Jam Selesai</label><input class="fi" type="time" id="b-end" value="15:00"></div>
+          <div class="fg"><label class="fl">Peminjam</label><input class="fi" type="text" id="b-req" placeholder="Dr. Sari / HMJ IF"></div>
+          <div class="fg" style="grid-column:1/-1"><label class="fl">Keperluan</label><input class="fi" type="text" id="b-purpose" placeholder="Seminar Tugas Akhir"></div>
+          <div class="fg" style="grid-column:1/-1"><label class="fl" style="opacity:0">x</label><button class="btn-pri" style="width:fit-content" onclick="addBooking()">Kirim Permohonan</button></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="section-label">Permohonan Masuk (Pending) <span id="pend-count" style="color:var(--warn);margin-left:6px"></span></div>
+        <div class="bk-list" id="bk-pending"><div class="empty-state">Tidak ada permohonan pending.</div></div>
+      </div>
+      <div class="card">
+        <div class="section-label">Peminjaman Disetujui</div>
+        <div class="bk-list" id="bk-approved"><div class="empty-state">Tidak ada peminjaman disetujui.</div></div>
+      </div>
+    </div>
+
+    <!-- ═══════ HOLIDAY ═══════ -->
+    <div class="section" id="section-holiday">
+      <div class="card">
+        <div class="section-label">Tambah Hari Libur</div>
+        <div class="form-grid">
+          <div class="fg"><label class="fl">Tanggal</label><input class="fi" type="date" id="h-date"></div>
+          <div class="fg"><label class="fl">Keterangan</label><input class="fi" type="text" id="h-name" placeholder="HUT RI, Lebaran…"></div>
+          <div class="fg" style="justify-content:flex-end"><label class="fl" style="opacity:0">x</label><button class="btn-pri" onclick="addHoliday()">+ Tambah</button></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="section-label">Daftar Hari Libur</div>
+        <div class="hl-list" id="hl-list"><div class="empty-state">Belum ada hari libur.</div></div>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+</main>
+</div><!-- /app -->
+
+<script>
+const API = 'http://localhost:8000';
+const DAYS = ['Senin','Selasa','Rabu','Kamis','Jumat','Sabtu','Minggu'];
+const MONTHS = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+
+// ── Global state ──────────────────────────────────────────────
+let allRooms      = [];                  // [{room_id, name, building_id, floor, mode, status}]
+let roomLatest    = {};                  // { room_id: latest sensor payload }
+let allHolidays   = [];
+let allSchedules  = {};                  // { room_id: [schedule] }
+let allBookings   = {};                  // { room_id: [booking] }
+let calYear       = new Date().getFullYear();
+let calMonth      = new Date().getMonth();
+let calSelected   = null;               // "YYYY-MM-DD"
+let dRoom         = null;               // currently open detail room_id
+let dMaster       = false;
+let dCurrentMode  = 'AUTO';
+let dActuators    = { master_relay:false, lights:false, ac:false }; // persisted actuator state
+let allNotifications = [];              // cached notifications for sync badge updates
+
+// ── Charts (detail view) ──────────────────────────────────────
+const G = 'rgba(62,72,80,.4)', T = '#87929b';
+const baseOpts = () => ({
+  responsive:true, maintainAspectRatio:false, animation:false,
+  plugins:{ legend:{ labels:{ color:T, font:{family:'Inter',size:10}, usePointStyle:true, pointStyleWidth:7, boxHeight:5 } } },
+  scales:{
+    x:{ ticks:{color:T,maxTicksLimit:5,font:{family:'Inter',size:9}}, grid:{color:G} },
+    y:{ ticks:{color:T,font:{family:'Inter',size:9}}, grid:{color:G} }
+  }
+});
+let dEnvChart, dAirChart, dPwrChart;
+function initDetailCharts() {
+  if (dEnvChart) { dEnvChart.destroy(); dAirChart.destroy(); dPwrChart.destroy(); }
+  dEnvChart = new Chart(document.getElementById('d-chart-env'), {
+    type:'line', options:baseOpts(),
+    data:{ labels:[], datasets:[
+      { label:'Suhu (°C)',     data:[], borderColor:'#f97316', backgroundColor:'rgba(249,115,22,.07)', fill:true, tension:.4, pointRadius:2, borderWidth:1.5 },
+      { label:'Kelembaban (%)',data:[], borderColor:'#8bd1ff', backgroundColor:'rgba(139,209,255,.06)', fill:true, tension:.4, pointRadius:2, borderWidth:1.5 },
+    ]}
+  });
+  const ao = baseOpts();
+  ao.scales.y2 = { position:'right', min:0, max:100, ticks:{color:T,font:{family:'Inter',size:9}}, grid:{drawOnChartArea:false} };
+  dAirChart = new Chart(document.getElementById('d-chart-air'), {
+    type:'line', options:ao,
+    data:{ labels:[], datasets:[
+      { label:'AQ (ppm)',      data:[], borderColor:'#ccbeff', backgroundColor:'rgba(204,190,255,.06)', fill:true, tension:.4, pointRadius:2, borderWidth:1.5, yAxisID:'y' },
+      { label:'Comfort',      data:[], borderColor:'#3fe48a', backgroundColor:'rgba(63,228,138,.06)',  fill:true, tension:.4, pointRadius:2, borderWidth:1.5, yAxisID:'y2' },
+    ]}
+  });
+  dPwrChart = new Chart(document.getElementById('d-chart-power'), {
+    type:'line', options:baseOpts(),
+    data:{ labels:[], datasets:[
+      { label:'Daya (W)', data:[], borderColor:'#fbbf24', backgroundColor:'rgba(251,191,36,.06)', fill:true, tension:.3, pointRadius:2, borderWidth:1.5 }
+    ]}
+  });
+}
+const MAX_P = 30;
+function pushC(ch, lbl, ...vals) {
+  ch.data.labels.push(lbl);
+  vals.forEach((v,i)=>ch.data.datasets[i].data.push(v));
+  if (ch.data.labels.length > MAX_P) { ch.data.labels.shift(); ch.data.datasets.forEach(d=>d.data.shift()); }
+  ch.update('none');
+}
+
+// ── Section nav ───────────────────────────────────────────────
+const TITLES = { home:'Dasbor Utama', detail:'Tampilan Detail', jadwal:'Jadwal Kuliah', peminjaman:'Peminjaman', holiday:'Hari Libur' };
+function showSection(name, el) {
+  document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  document.getElementById('section-'+name).classList.add('active');
+  el.classList.add('active');
+  document.getElementById('page-title').textContent = TITLES[name];
+  if (name==='detail')     renderRoomCards();
+  if (name==='jadwal')     { populateRoomSel('sched-room-sel'); loadSchedules(); }
+  if (name==='peminjaman') { populateRoomSel('bk-room-sel'); loadBookings(); }
+  if (name==='holiday')    loadHolidays();
+}
+
+// ── Safe fetch helper — never throws, returns fallback on error or non-OK ────
+async function sf(url, fallback = null) {
+  try {
+    const r = await fetch(url);
+    if (!r.ok) return fallback;
+    return await r.json();
+  } catch(e) {
+    console.warn('[fetch]', url, e.message);
+    return fallback;
+  }
+}
+
+// ── Init & data loading ───────────────────────────────────────
+async function init() {
+  document.getElementById('qb-date').value = today();
+  document.getElementById('b-date').value  = today();
+  document.getElementById('h-date').value  = today();
+
+  // WS connects immediately — not blocked by data loading
+  connectWS();
+
+  allRooms = await sf(`${API}/rooms`, []);
+  populateRoomSel('qb-room');
+  populateRoomSel('sched-room-sel');
+  populateRoomSel('bk-room-sel');
+
+  // Load calendar data and latest sensor values in parallel
+  await Promise.all([
+    loadAllSchedules(),
+    loadAllBookings(),
+    loadHolidayData(),
+    loadAllLatest(),
+  ]);
+
+  try { renderCalendar(); } catch(e) { console.warn('[Calendar]', e); }
+  loadNotifications();
+  updateAggStats();
+
+  setInterval(loadNotifications, 30000);
+  setInterval(loadContext,       60000);
+  setInterval(updateAggStats,   15000);
+}
+
+function today() { return new Date().toISOString().slice(0,10); }
+
+async function loadAllSchedules() {
+  await Promise.all(allRooms.map(async r => {
+    const data = await sf(`${API}/rooms/${r.room_id}/schedules`, []);
+    allSchedules[r.room_id] = Array.isArray(data) ? data : [];
+  }));
+}
+
+async function loadAllBookings() {
+  await Promise.all(allRooms.map(async r => {
+    const data = await sf(`${API}/rooms/${r.room_id}/bookings`, []);
+    allBookings[r.room_id] = Array.isArray(data) ? data : [];
+  }));
+}
+
+async function loadHolidayData() {
+  const data = await sf(`${API}/holidays`, []);
+  allHolidays = Array.isArray(data) ? data : [];
+}
+
+async function loadAllLatest() {
+  await Promise.all(allRooms.map(async r => {
+    const d = await sf(`${API}/rooms/${r.room_id}/latest`, null);
+    if (d && d.room_id) roomLatest[r.room_id] = normLatest(d);
+  }));
+}
+
+// Normalize the /latest response into a WS-like structure
+// /latest returns flat fields; WS payload uses nested objects
+function normLatest(d) {
+  return {
+    room_id:     d.room_id,
+    timestamp:   d.timestamp,
+    environment: {
+      temperature:   d.temperature,
+      humidity:      d.humidity,
+      heat_index:    d.heat_index,
+      air_quality:   d.air_quality,
+      lux:           d.lux,
+      comfort_score: d.comfort_score,
+    },
+    power: {
+      voltage:   d.voltage,
+      current:   d.current,
+      power:     d.power_w,          // field is power_w in /latest
+      energy:    d.energy,           // field is energy in /latest
+      frequency: d.frequency,
+      pf:        d.pf,
+    },
+    occupancy: {
+      pir_triggered:    d.pir_triggered,
+      estimated_people: d.estimated_people,
+      activity_score:   d.activity_score,
+      state:            d.state,     // field is state (not occupancy_state) in /latest
+    },
+  };
+}
+
+// ── WebSocket ─────────────────────────────────────────────────
+function connectWS() {
+  const ws = new WebSocket('ws://localhost:8000/ws');
+  const dot1 = document.getElementById('ws-dot');
+  const dot2 = document.getElementById('ws-dot2');
+  const lbl  = document.getElementById('ws-label');
+  const lbl2 = document.getElementById('ws-status-label');
+  ws.onopen = () => {
+    [dot1,dot2].forEach(d=>d.classList.add('on'));
+    lbl.textContent = 'Live'; lbl2.textContent = 'Live';
+  };
+  ws.onclose = () => {
+    [dot1,dot2].forEach(d=>d.classList.remove('on'));
+    lbl.textContent = 'Terputus…'; lbl2.textContent = 'Terputus…';
+    setTimeout(connectWS, 3000);
+  };
+  ws.onerror = () => {};
+  ws.onmessage = e => {
+    const m = JSON.parse(e.data);
+    if (m.event === 'sensor_update') {
+      roomLatest[m.data.room_id] = m.data;
+      updateAggStatsFast();                              // sync, no fetch
+      if (m.data.room_id === dRoom) updateDetailLive(m.data);
+      updateRoomCard(m.data.room_id);
+    }
+    if (m.event === 'notification') { loadNotifications(); updateNotifBadge(); }
+  };
+}
+
+// ── Aggregate stats ───────────────────────────────────────────
+// Fast sync version — called on every WS update, no fetches
+function updateAggStatsFast() {
+  const vals = Object.values(roomLatest);
+  if (!vals.length) return;
+  const avgPwr = vals.reduce((s,v)=>s+(v.power?.power||0), 0) / vals.length;
+  const avgCom = vals.reduce((s,v)=>s+(v.environment?.comfort_score||0), 0) / vals.length;
+  document.getElementById('agg-power').innerHTML   = Math.round(avgPwr)+'<span class="agg-unit">W</span>';
+  document.getElementById('agg-comfort').innerHTML = avgCom.toFixed(1)+'<span class="agg-unit">/100</span>';
+  document.getElementById('agg-power-sub').textContent   = vals.length+' ruangan dengan data';
+  document.getElementById('agg-comfort-sub').textContent = 'Indeks kenyamanan rata-rata';
+}
+
+// Update unread badge from cached notifications — sync, no fetch
+function updateNotifBadge() {
+  const unack = allNotifications.filter(n=>!n.acknowledged).length;
+  document.getElementById('agg-alerts').textContent = unack;
+  const pb = document.getElementById('pending-badge');
+  if (unack>0) { pb.textContent=unack; pb.style.display=''; }
+  else pb.style.display='none';
+}
+
+// Full version — fetches rooms status + notifications, called by setInterval only
+async function updateAggStats() {
+  updateAggStatsFast();
+  // Active rooms (status may change over time via auto-control)
+  const rooms = await sf(`${API}/rooms`, []);
+  if (Array.isArray(rooms) && rooms.length) {
+    allRooms = rooms; // keep cache fresh
+    const active = rooms.filter(r=>r.status==='ACTIVE').length;
+    document.getElementById('agg-active').innerHTML      = active+'<span class="agg-unit"> / '+rooms.length+'</span>';
+    document.getElementById('agg-active-sub').textContent = rooms.length+' ruangan terdaftar';
+  }
+  // Alerts
+  const notifs = await sf(`${API}/notifications`, []);
+  if (Array.isArray(notifs)) {
+    allNotifications = notifs;
+    updateNotifBadge();
+  }
+}
+
+// ── Calendar ──────────────────────────────────────────────────
+function calNav(dir) { calMonth += dir; if(calMonth<0){calMonth=11;calYear--;}else if(calMonth>11){calMonth=0;calYear++;} renderCalendar(); }
+
+function jsDow(y,m,d) { return (new Date(y,m,d).getDay()+6)%7; } // 0=Mon
+
+function renderCalendar() {
+  document.getElementById('cal-title').textContent = `${MONTHS[calMonth]} ${calYear}`;
+  const firstDow = jsDow(calYear, calMonth, 1);
+  const daysInM  = new Date(calYear, calMonth+1, 0).getDate();
+  const todayStr = today();
+
+  // Flatten schedule data: for each day-of-week, collect class slots across all rooms
+  // Holidays: map to "YYYY-MM-DD"
+  const holidayDates = new Set(allHolidays.map(h=>h.date));
+  // Bookings by date (approved)
+  const bookingDates = new Set();
+  Object.values(allBookings).flat().filter(b=>b.status==='APPROVED').forEach(b=>bookingDates.add(b.date));
+  // Schedule days-of-week that have at least one slot
+  const schedDows = new Set();
+  Object.values(allSchedules).flat().forEach(s=>schedDows.add(s.day_of_week));
+
+  const dowLabels = ['Sen','Sel','Rab','Kam','Jum','Sab','Min'];
+  let html = dowLabels.map(d=>`<div class="cal-dow">${d}</div>`).join('');
+
+  // Empty cells before first
+  for(let i=0;i<firstDow;i++) html += '<div class="cal-day other-month"></div>';
+
+  for(let d=1;d<=daysInM;d++) {
+    const dateStr = `${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const dow     = jsDow(calYear, calMonth, d);
+    const isToday = dateStr===todayStr;
+    const isSel   = dateStr===calSelected;
+    const isHol   = holidayDates.has(dateStr);
+    const hasBk   = bookingDates.has(dateStr);
+    const hasCl   = schedDows.has(dow);
+
+    let cls = 'cal-day';
+    if(isHol)  cls += ' holiday-day';
+    if(isToday)cls += ' today';
+    if(isSel)  cls += ' selected';
+
+    let dots = '';
+    if(hasCl && !isHol)  dots += '<div class="cal-dot dot-class"></div>';
+    if(hasBk && !isHol)  dots += '<div class="cal-dot dot-booking"></div>';
+    if(isHol)            dots += '<div class="cal-dot dot-holiday"></div>';
+
+    html += `<div class="${cls}" onclick="calSelectDay('${dateStr}',${dow})">${d}<div class="cal-dots">${dots}</div></div>`;
+  }
+  document.getElementById('cal-grid').innerHTML = html;
+
+  if(calSelected) calShowEvents(calSelected, jsDow(new Date(calSelected).getFullYear(), new Date(calSelected).getMonth(), parseInt(calSelected.slice(8))));
+}
+
+function calSelectDay(dateStr, dow) {
+  calSelected = dateStr;
+  renderCalendar();
+  calShowEvents(dateStr, dow);
+}
+
+function calShowEvents(dateStr, dow) {
+  const d = new Date(dateStr+'T00:00:00');
+  document.getElementById('cal-events-title').textContent =
+    d.toLocaleDateString('id-ID',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+
+  let items = '';
+
+  // Holiday
+  allHolidays.filter(h=>h.date===dateStr).forEach(h=>{
+    items += `<div class="event-item ev-holiday"><div class="event-title">🔴 ${h.name}</div><div class="event-meta">Hari Libur</div></div>`;
+  });
+
+  // Schedules for this dow
+  Object.entries(allSchedules).forEach(([roomId, slots])=>{
+    slots.filter(s=>s.day_of_week===dow).sort((a,b)=>a.start_time.localeCompare(b.start_time)).forEach(s=>{
+      items += `<div class="event-item">
+        <div class="event-time">${s.start_time}–${s.end_time}</div>
+        <div class="event-title">${s.subject}</div>
+        <div class="event-meta">${roomId}${s.lecturer?' · '+s.lecturer:''}</div>
+      </div>`;
+    });
+  });
+
+  // Bookings for this date (all statuses shown)
+  Object.entries(allBookings).forEach(([roomId, bks])=>{
+    bks.filter(b=>b.date===dateStr).sort((a,b)=>a.start_time.localeCompare(b.start_time)).forEach(b=>{
+      const sc = b.status==='APPROVED'?'ev-booking':'';
+      items += `<div class="event-item ${sc}">
+        <div class="event-time">${b.start_time}–${b.end_time}</div>
+        <div class="event-title">${b.purpose}</div>
+        <div class="event-meta">${roomId} · ${b.requester} · <span class="badge b-${b.status.toLowerCase()}" style="font-size:10px;padding:1px 7px">${b.status}</span></div>
+      </div>`;
+    });
+  });
+
+  document.getElementById('cal-events-list').innerHTML = items || '<div class="empty-state">Tidak ada jadwal hari ini.</div>';
+}
+
+// ── Quick booking ─────────────────────────────────────────────
+async function quickBooking() {
+  const room    = document.getElementById('qb-room').value;
+  const date    = document.getElementById('qb-date').value;
+  const start   = document.getElementById('qb-start').value;
+  const end     = document.getElementById('qb-end').value;
+  const req     = document.getElementById('qb-requester').value.trim();
+  const purpose = document.getElementById('qb-purpose').value.trim();
+  if(!room||!date||!req||!purpose){alert('Lengkapi semua kolom.');return;}
+  if(start>=end){alert('Jam selesai harus setelah jam mulai.');return;}
+  try {
+    const res = await fetch(`${API}/rooms/${room}/bookings`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date,start_time:start,end_time:end,requester:req,purpose})});
+    if(!res.ok){const e=await res.json();alert(e.detail||'Gagal.');return;}
+    document.getElementById('qb-requester').value='';
+    document.getElementById('qb-purpose').value='';
+    await loadAllBookings(); renderCalendar();
+    alert('Permohonan terkirim. Menunggu persetujuan petugas.');
+  } catch(e){console.warn('[QB]',e);}
+}
+
+// ── Notifications ─────────────────────────────────────────────
+async function loadNotifications() {
+  const notifs = await sf(`${API}/notifications`, []);
+  if (!Array.isArray(notifs)) return;
+  allNotifications = notifs;               // update cache for badge sync
+  updateNotifBadge();
+  const list  = document.getElementById('notif-list');
+  const items = notifs.filter(n=>!n.acknowledged).sort((a,b)=>b.id-a.id).slice(0,10);
+  if(!items.length){list.innerHTML='<div class="empty-state">Tidak ada notifikasi aktif.</div>';return;}
+  list.innerHTML = items.map(n=>`
+    <div class="notif-item ${n.severity}">
+      <div><strong>${n.type}</strong> <span class="notif-room">${n.room_id}</span> — ${n.message}</div>
+      <button onclick="ackNotif(${n.id})" style="padding:3px 10px;font-size:11px">Tutup</button>
+    </div>`).join('');
+}
+async function ackNotif(id){
+  await fetch(`${API}/notifications/${id}/acknowledge`,{method:'PATCH'});
+  loadNotifications();                     // re-fetch and re-render list + badge
+}
+
+// ── Detail view ───────────────────────────────────────────────
+function renderRoomCards() {
+  const buildings = {};
+  allRooms.forEach(r=>{ buildings[r.building_id]??=[]; buildings[r.building_id].push(r); });
+  const bldgLabel = Object.keys(buildings).join(', ') || 'Semua Gedung';
+  document.getElementById('bldg-label').textContent = `Gedung: ${bldgLabel}`;
+
+  document.getElementById('room-cards').innerHTML = allRooms.map(r => {
+    const lat   = roomLatest[r.room_id];
+    const temp  = lat ? lat.environment.temperature+'°C' : '–';
+    const com   = lat ? lat.environment.comfort_score : '–';
+    const pwr   = lat ? Math.round(lat.power.power)+'W' : '–';
+    const occ   = lat ? lat.occupancy.state : '–';
+    const stCls = {'ACTIVE':'b-active','DORMANT':'b-dormant','HOLIDAY':'b-holiday','OVERRIDED':'b-override'}[r.status]||'b-dormant';
+    return `<div class="room-card${dRoom===r.room_id?' active':''}" id="rc-${r.room_id}" onclick="openDetail('${r.room_id}')">
+      <div class="rc-header">
+        <div><div class="rc-id">${r.room_id}</div><div class="rc-name">${r.name}</div></div>
+        <span class="badge ${stCls}">${r.status}</span>
+      </div>
+      <div class="rc-metrics">
+        <div class="rc-metric"><div class="rc-m-lbl">Suhu</div><div class="rc-m-val">${temp}</div></div>
+        <div class="rc-metric"><div class="rc-m-lbl">Comfort</div><div class="rc-m-val">${com}</div></div>
+        <div class="rc-metric"><div class="rc-m-lbl">Daya</div><div class="rc-m-val">${pwr}</div></div>
+        <div class="rc-metric"><div class="rc-m-lbl">Hunian</div><div class="rc-m-val" style="font-size:12px">${occ}</div></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function updateRoomCard(roomId) {
+  const el  = document.getElementById('rc-'+roomId);
+  if (!el) return;
+  const lat = roomLatest[roomId];
+  if (!lat) return;
+  const m = el.querySelectorAll('.rc-m-val');
+  m[0].textContent = lat.environment.temperature+'°C';
+  m[1].textContent = lat.environment.comfort_score;
+  m[2].textContent = Math.round(lat.power.power)+'W';
+  m[3].textContent = lat.occupancy.state;
+}
+
+async function openDetail(roomId) {
+  dRoom      = roomId;
+  dMaster    = false;
+  dActuators = { master_relay:false, lights:false, ac:false }; // reset per-room state
+  document.querySelectorAll('.room-card').forEach(c=>c.classList.remove('active'));
+  document.getElementById('rc-'+roomId)?.classList.add('active');
+
+  const panel = document.getElementById('detail-panel');
+  panel.classList.add('open');
+  panel.scrollIntoView({behavior:'smooth',block:'start'});
+
+  document.getElementById('d-room-id').textContent = roomId;
+  const room = allRooms.find(r=>r.room_id===roomId);
+  document.getElementById('d-room-name').textContent = room?.name||'';
+
+  // Init charts fresh for this room
+  initDetailCharts();
+
+  // Load room info
+  try {
+    const r = await fetch(`${API}/rooms/${roomId}`).then(x=>x.json());
+    dApplyMode(r.mode);
+  } catch(e){}
+
+  // Load latest sensor data immediately
+  const lat = roomLatest[roomId];
+  if (lat) fillDetailStats(lat);
+
+  // Load history for charts
+  try {
+    const hist = await fetch(`${API}/rooms/${roomId}/history?hours=1`).then(x=>x.json());
+    const data = [...(hist.data||[])].reverse();
+    data.forEach(d=>{
+      const t = fmtTime(d.timestamp);
+      pushC(dEnvChart, t, d.temperature, d.humidity);
+      pushC(dAirChart, t, d.air_quality, d.comfort_score);
+      pushC(dPwrChart, t, d.power_w);
+    });
+  } catch(e){}
+
+  // Context badge
+  await loadContext(roomId);
+}
+
+function fillDetailStats(d) {
+  const env=d.environment, pwr=d.power, occ=d.occupancy;
+  const s = (id,v) => { const e=document.getElementById(id); if(e) e.textContent=v; };
+  document.getElementById('d-temp').innerHTML    = env.temperature+'<span class="sc-unit">°C</span>';
+  s('d-hi', 'Heat index '+env.heat_index+'°C');
+  document.getElementById('d-hum').innerHTML     = env.humidity+'<span class="sc-unit">%</span>';
+  document.getElementById('d-aq').innerHTML      = env.air_quality+'<span class="sc-unit">ppm</span>';
+  s('d-aq-s', aqLabel(env.air_quality));
+  s('d-comfort', env.comfort_score);
+  s('d-lux', 'Lux: '+env.lux);
+  document.getElementById('d-power').innerHTML   = Math.round(pwr.power)+'<span class="sc-unit">W</span>';
+  s('d-energy', pwr.energy+' kWh');
+  s('d-people', occ.estimated_people);
+  s('d-act', 'Activity: '+occ.activity_score);
+
+  const ob = document.getElementById('d-occ-badge');
+  ob.textContent = occ.state;
+  ob.className   = 'badge b-'+occ.state.toLowerCase().replace('_','-');
+
+  const t = fmtTime(d.timestamp);
+  s('d-update', 'Update: '+t);
+}
+
+function updateDetailLive(d) {
+  if (d.room_id !== dRoom) return;
+  fillDetailStats(d);
+  const t = fmtTime(d.timestamp);
+  pushC(dEnvChart, t, d.environment.temperature, d.environment.humidity);
+  pushC(dAirChart, t, d.environment.air_quality, d.environment.comfort_score);
+  pushC(dPwrChart, t, d.power.power);
+}
+
+function closeDetail() {
+  dRoom = null;
+  document.getElementById('detail-panel').classList.remove('open');
+  document.querySelectorAll('.room-card').forEach(c=>c.classList.remove('active'));
+}
+
+// ── Context badge ──────────────────────────────────────────────
+async function loadContext(roomId) {
+  const rid = roomId || dRoom;
+  if (!rid) return;
+  try {
+    const ctx = await sf(`${API}/rooms/${rid}/context`, null);
+    if (!ctx) return;
+    // Home topbar badge
+    const tb = document.getElementById('ctx-badge');
+    // Detail panel badge
+    const db = document.getElementById('d-ctx-badge');
+    let label = null, style = '';
+    if(ctx.is_holiday) { label='🔴 '+ctx.holiday_name; style='b-holiday'; }
+    else if(ctx.is_active && ctx.window_label) { label='📚 '+ctx.window_label; style='b-active'; }
+    else if(ctx.in_buffer) { label='⏳ Buffer 5 menit'; style='b-override'; }
+    if(label && tb) { tb.textContent=label; tb.className='badge '+style; tb.style.display=''; }
+    else if(tb) tb.style.display='none';
+    if(label && db) { db.textContent=label; db.className='badge '+style; db.style.display=''; }
+    else if(db) db.style.display='none';
+  } catch(e){}
+}
+
+// ── Detail control ─────────────────────────────────────────────
+function dApplyMode(mode) {
+  dCurrentMode = mode;
+  const mb = document.getElementById('d-mode-badge');
+  mb.textContent = mode;
+  mb.className   = 'badge b-'+({AUTO:'auto',OVERRIDE:'override',HOLIDAY:'holiday'}[mode]||'auto');
+  document.getElementById('d-btn-auto').className     = mode==='AUTO'     ? 'btn-mode-on'     : '';
+  document.getElementById('d-btn-override').className = mode==='OVERRIDE' ? 'btn-override-on' : '';
+  const inOv = mode==='OVERRIDE';
+  ['d-btn-lo','d-btn-lf','d-btn-ao','d-btn-af'].forEach(id=>document.getElementById(id).disabled=!inOv);
+}
+async function dSetMode(mode) {
+  if(!dRoom)return;
+  try {
+    await fetch(`${API}/rooms/${dRoom}/mode`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode})});
+    dApplyMode(mode);
+    if (mode === 'OVERRIDE') {
+      // Reset actuator state on fresh OVERRIDE entry — ESP32 starts from known-off state
+      dActuators = { master_relay:false, lights:false, ac:false };
+      document.getElementById('d-btn-lo').className = '';
+      document.getElementById('d-btn-lf').className = 'btn-off';
+      document.getElementById('d-btn-ao').className = '';
+      document.getElementById('d-btn-af').className = 'btn-off';
+      await dMqtt({mode:'OVERRIDE', actuators:dActuators});
+    } else {
+      await dMqtt({mode:'AUTO'});
+    }
+  } catch(e){console.warn('[dMode]',e);}
+}
+async function dCmd(act) {
+  if(dCurrentMode!=='OVERRIDE'){alert('Pindah ke OVERRIDE dulu.');return;}
+  // Merge partial change into persisted actuator state — preserves all other actuators
+  dActuators = { ...dActuators, ...act };
+  const sp = parseFloat(document.getElementById('d-sp').value);
+  await dMqtt({mode:'OVERRIDE', actuators:dActuators, ac_setpoint:sp});
+  // Sync all button visuals to reflect full current state
+  document.getElementById('d-btn-lo').className = dActuators.lights ? 'btn-on' : '';
+  document.getElementById('d-btn-lf').className = !dActuators.lights ? 'btn-off' : '';
+  document.getElementById('d-btn-ao').className = dActuators.ac ? 'btn-on' : '';
+  document.getElementById('d-btn-af').className = !dActuators.ac ? 'btn-off' : '';
+}
+async function dSendSP() {
+  if(dCurrentMode!=='OVERRIDE'){alert('Mode OVERRIDE dulu.');return;}
+  // Send setpoint while preserving current lights/ac state
+  await dMqtt({mode:'OVERRIDE', actuators:dActuators, ac_setpoint:parseFloat(document.getElementById('d-sp').value)});
+}
+async function dToggleMaster() {
+  dMaster = !dMaster;
+  dActuators.master_relay = dMaster;
+  const btn = document.getElementById('d-btn-master');
+  btn.classList.toggle('armed', dMaster);
+  btn.textContent = dMaster ? '⚠ Master Relay — AKTIF' : '⚠ Master Relay';
+
+  if (dMaster && dCurrentMode !== 'OVERRIDE') {
+    // Force room into OVERRIDE so auto-control stops sending commands —
+    // backend does the same DB write, but we sync UI immediately too.
+    try {
+      await fetch(`${API}/rooms/${dRoom}/mode`, {
+        method:'PATCH',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({mode:'OVERRIDE'})
+      });
+    } catch(e) { console.warn('[masterRelay] mode switch failed', e); }
+    dApplyMode('OVERRIDE');
+  }
+
+  await dMqtt({mode:'OVERRIDE', actuators:dActuators});
+}
+async function dMqtt(payload) {
+  if(!dRoom)return;
+  try { await fetch(`${API}/rooms/${dRoom}/command`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); }
+  catch(e){console.warn('[dCmd]',e);}
+}
+
+// ── Schedules ─────────────────────────────────────────────────
+async function loadSchedules() {
+  const roomId = document.getElementById('sched-room-sel').value;
+  if(!roomId)return;
+  const data = await sf(`${API}/rooms/${roomId}/schedules`, []);
+  allSchedules[roomId] = Array.isArray(data) ? data : [];
+  renderScheduleGrid(roomId);
+}
+
+function renderScheduleGrid(roomId) {
+  const slots   = allSchedules[roomId]||[];
+  const todayDow = (new Date().getDay()+6)%7;
+  const byDay   = Array.from({length:7},()=>[]);
+  slots.forEach(s=>byDay[s.day_of_week].push(s));
+  byDay.forEach(a=>a.sort((x,y)=>x.start_time.localeCompare(y.start_time)));
+  document.getElementById('sched-grid').innerHTML = DAYS.map((day,i)=>`
+    <div>
+      <div class="day-hdr${i===todayDow?' today-col':''}">${day}</div>
+      ${byDay[i].length
+        ? byDay[i].map(s=>`<div class="slot-c">
+            <button class="slot-del" onclick="deleteSchedule('${roomId}',${s.id})">✕</button>
+            <div class="slot-time">${s.start_time}–${s.end_time}</div>
+            <div class="slot-subj">${s.subject}</div>
+            <div class="slot-lect">${s.lecturer||'–'}</div>
+          </div>`).join('')
+        : '<div class="day-empty">Kosong</div>'
+      }
+    </div>`).join('');
+}
+
+async function addSchedule() {
+  const roomId  = document.getElementById('sched-room-sel').value;
+  const day     = parseInt(document.getElementById('f-day').value);
+  const start   = document.getElementById('f-start').value;
+  const end     = document.getElementById('f-end').value;
+  const subject = document.getElementById('f-subject').value.trim();
+  const lect    = document.getElementById('f-lecturer').value.trim();
+  if(!roomId){alert('Pilih ruangan dulu.');return;}
+  if(!subject){alert('Mata kuliah tidak boleh kosong.');return;}
+  if(start>=end){alert('Jam selesai harus setelah jam mulai.');return;}
+  try {
+    const res = await fetch(`${API}/rooms/${roomId}/schedules`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({day_of_week:day,start_time:start,end_time:end,subject,lecturer:lect||null})});
+    if(!res.ok){const e=await res.json();alert(e.detail||'Gagal.');return;}
+    document.getElementById('f-subject').value='';
+    document.getElementById('f-lecturer').value='';
+    await loadSchedules(); renderCalendar();
+  } catch(e){console.warn('[AddSched]',e);}
+}
+
+async function deleteSchedule(roomId, id) {
+  if(!confirm('Hapus slot ini?'))return;
+  await fetch(`${API}/rooms/${roomId}/schedules/${id}`,{method:'DELETE'});
+  await loadSchedules(); renderCalendar();
+}
+
+// ── Bookings ──────────────────────────────────────────────────
+async function loadBookings() {
+  const roomId = document.getElementById('bk-room-sel').value;
+  if(!roomId)return;
+  const raw = await sf(`${API}/rooms/${roomId}/bookings`, []);
+  allBookings[roomId] = Array.isArray(raw) ? raw : [];
+  try {
+    const all     = allBookings[roomId];
+    const pending = all.filter(b=>b.status==='PENDING');
+    const apprd   = all.filter(b=>b.status==='APPROVED');
+
+    document.getElementById('pend-count').textContent = pending.length?`(${pending.length} menunggu)`:'';
+
+    const pe = document.getElementById('bk-pending');
+    pe.innerHTML = pending.length ? pending.map(b=>bkCard(b,true)).join('') : '<div class="empty-state">Tidak ada permohonan pending.</div>';
+
+    const ae = document.getElementById('bk-approved');
+    ae.innerHTML = apprd.length ? apprd.map(b=>bkCard(b,false)).join('') : '<div class="empty-state">Tidak ada peminjaman disetujui.</div>';
+  } catch(e){console.warn('[Bookings]',e);}
+}
+
+function bkCard(b, pending) {
+  return `<div class="bk-item">
+    <div class="bk-info">
+      <div class="bk-title">${b.purpose} <span class="badge b-${b.status.toLowerCase()}">${b.status}</span></div>
+      <div class="bk-meta">📅 ${b.date} · ${b.start_time}–${b.end_time} · 👤 ${b.requester}</div>
+    </div>
+    <div class="bk-acts">
+      ${pending ? `<button class="btn-ok"  onclick="setBkStatus(${b.id},'APPROVED')">Setujui</button>
+                   <button class="btn-del" onclick="setBkStatus(${b.id},'REJECTED')">Tolak</button>` : ''}
+      <button class="btn-del" onclick="delBooking(${b.id})">Hapus</button>
+    </div>
+  </div>`;
+}
+
+async function addBooking() {
+  const roomId = document.getElementById('bk-room-sel').value;
+  const date   = document.getElementById('b-date').value;
+  const start  = document.getElementById('b-start').value;
+  const end    = document.getElementById('b-end').value;
+  const req    = document.getElementById('b-req').value.trim();
+  const purp   = document.getElementById('b-purpose').value.trim();
+  if(!roomId||!date||!req||!purp){alert('Lengkapi semua kolom.');return;}
+  if(start>=end){alert('Jam selesai harus setelah jam mulai.');return;}
+  try {
+    const res = await fetch(`${API}/rooms/${roomId}/bookings`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date,start_time:start,end_time:end,requester:req,purpose:purp})});
+    if(!res.ok){const e=await res.json();alert(e.detail||'Gagal.');return;}
+    document.getElementById('b-req').value='';
+    document.getElementById('b-purpose').value='';
+    await loadBookings(); await loadAllBookings(); renderCalendar();
+  } catch(e){console.warn('[AddBk]',e);}
+}
+
+async function setBkStatus(id, status) {
+  await fetch(`${API}/bookings/${id}/status`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});
+  await loadBookings(); await loadAllBookings(); renderCalendar();
+}
+
+async function delBooking(id) {
+  if(!confirm('Hapus data peminjaman ini?'))return;
+  await fetch(`${API}/bookings/${id}`,{method:'DELETE'});
+  await loadBookings(); await loadAllBookings(); renderCalendar();
+}
+
+// ── Holidays ──────────────────────────────────────────────────
+async function loadHolidays() {
+  try {
+    const raw   = await sf(`${API}/holidays`, []);
+    allHolidays = Array.isArray(raw) ? raw : [];
+    const list  = document.getElementById('hl-list');
+    if(!allHolidays.length){list.innerHTML='<div class="empty-state">Belum ada hari libur.</div>';return;}
+    list.innerHTML = allHolidays.map(h=>`
+      <div class="hl-item">
+        <div class="hl-date">${fmtDate(h.date)}</div>
+        <div class="hl-name">${h.name}</div>
+        <button class="btn-del" style="padding:4px 12px;font-size:12px" onclick="delHoliday(${h.id})">Hapus</button>
+      </div>`).join('');
+    renderCalendar();
+  } catch(e){console.warn('[Holidays]',e);}
+}
+
+async function addHoliday() {
+  const date = document.getElementById('h-date').value;
+  const name = document.getElementById('h-name').value.trim();
+  if(!date||!name){alert('Lengkapi tanggal dan keterangan.');return;}
+  try {
+    const res = await fetch(`${API}/holidays`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date,name})});
+    if(!res.ok){const e=await res.json();alert(e.detail||'Gagal.');return;}
+    document.getElementById('h-name').value='';
+    await loadHolidays();
+  } catch(e){console.warn('[AddHol]',e);}
+}
+
+async function delHoliday(id) {
+  if(!confirm('Hapus hari libur ini?'))return;
+  await fetch(`${API}/holidays/${id}`,{method:'DELETE'});
+  await loadHolidays();
+}
+
+// ── Helpers ────────────────────────────────────────────────────
+function populateRoomSel(selId) {
+  const sel = document.getElementById(selId);
+  if(!sel)return;
+  sel.innerHTML = allRooms.map(r=>`<option value="${r.room_id}">${r.room_id} – ${r.name}</option>`).join('');
+}
+
+function aqLabel(p) {
+  if(p<600)  return '✓ Baik';
+  if(p<900)  return '▲ Sedang';
+  if(p<1200) return '⚠ Buruk';
+  return '✕ Sangat Buruk';
+}
+
+function fmtTime(ts) {
+  return new Date(ts).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+}
+function fmtDate(d) {
+  return new Date(d+'T00:00:00').toLocaleDateString('id-ID',{weekday:'short',year:'numeric',month:'short',day:'numeric'});
+}
+
+// ── Start ──────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>

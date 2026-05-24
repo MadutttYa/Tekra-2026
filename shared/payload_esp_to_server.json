@@ -1,32 +1,30 @@
 {
-  "device_id": "ESP-1",
-  "building_id": "Gedung-A",
-  "floor": 1,
+  "device_id": "ESP-A1.01",
   "room_id": "A1.01",
-  "timestamp": "2026-05-23T14:00:00Z",
+  "timestamp": "2026-05-24T08:15:00Z",
 
   "environment": {
-    "temperature": 0.0,
-    "humidity": 0.0,
-    "heat_index": 0.0,
-    "air_quality": 0.0,
-    "lux": 0.0,
-    "comfort_score": 0.0
+    "temperature": 27.4,
+    "humidity": 65.0,
+    "heat_index": 29.2,
+    "air_quality": 712,
+    "lux": 380.0,
+    "comfort_score": 72.5
   },
 
   "power": {
-    "voltage": 0.0,
-    "current": 0.0,
-    "power": 0.0,
-    "energy": 0.0,
-    "frequency": 0.0,
-    "pf": 0.0
+    "voltage": 220.0,
+    "current": 4.8,
+    "power": 1003.0,
+    "energy": 0.167,
+    "frequency": 50.0,
+    "pf": 0.95
   },
 
   "occupancy": {
-    "pir_triggered": false,
-    "estimated_people": 0,
-    "activity_score": 0.0,
-    "state": "EMPTY"
+    "pir_triggered": true,
+    "estimated_people": 24,
+    "activity_score": 1.0,
+    "state": "OCCUPIED"
   }
 }

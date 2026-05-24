@@ -1,14 +1,13 @@
 {
   "room_id": "A1.01",
-  "timestamp": "2026-05-23T14:00:00Z",
-  "mode": "AUTO",
+  "timestamp": "2026-05-24T08:15:00Z",
+  "mode": "OVERRIDE",
 
   "actuators": {
     "master_relay": false,
     "lights": true,
-    "ac": true,
-    "outlets": true
+    "ac": true
   },
 
-  "ac_setpoint": 24.0
+  "ac_setpoint": 26.0
 }

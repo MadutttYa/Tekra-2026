@@ -4,19 +4,11 @@ import asyncpg
 from fastapi import Request
 
 
-# -----------------------------------------------------------------------------
-# Dependency — used with FastAPI's Depends()
-# Retrieves the db pool that was stored in app.state during startup
-# -----------------------------------------------------------------------------
 def get_db_pool(request: Request) -> asyncpg.Pool:
     return request.app.state.db_pool
 
 
-# -----------------------------------------------------------------------------
-# Queries
-# -----------------------------------------------------------------------------
 async def get_latest_reading(pool: asyncpg.Pool, room_id: str) -> dict | None:
-    """Get the single most recent sensor reading for a room."""
     row = await pool.fetchrow(
         """
         SELECT *
@@ -35,8 +27,7 @@ async def get_room_history(
     room_id: str,
     hours: int = 24,
 ) -> list[dict]:
-    """Get all sensor readings for a room within the last N hours."""
-    since = datetime.utcnow() - timedelta(hours=hours)  # naive UTC — what QuestDB expects
+    since = datetime.utcnow() - timedelta(hours=hours)
 
     rows = await pool.fetch(
         """

@@ -1,29 +1,47 @@
-# MQTT Topic Structure
+# Struktur Topik MQTT
 
-All topics are prefixed with `tekra/`. Real hardware and Wokwi simulation use different prefixes so Telegraf and the backend can tell them apart.
+Semua topik diawali dengan `tekra/`. Setiap ruangan memiliki dua topik: satu untuk data sensor dan satu untuk perintah aktuator.
 
-## Topics
+## Topik Produksi (Hardware Fisik)
 
-| Topic | Direction | Description |
-|-------|-----------|-------------|
-| `tekra/room/{room_id}/telemetry` | ESP32 → Server | Sensor data from real hardware |
-| `tekra/room/{room_id}/commands` | Server → ESP32 | Actuator commands to real hardware |
-| `tekra/wokwi/{room_id}/telemetry` | Wokwi → Server | Sensor data from simulation (dummy data) |
-| `tekra/wokwi/{room_id}/commands` | Server → Wokwi | Commands to simulation |
+| Topik | Arah | Keterangan |
+|-------|------|------------|
+| `tekra/room/{room_id}/telemetry` | ESP32 → Server | Data sensor dikirim setiap 10 detik |
+| `tekra/room/{room_id}/commands` | Server → ESP32 | Perintah kontrol aktuator dari backend |
 
-## Wildcards Used by Subscribers
+## Wildcard Subscriber
 
-| Subscriber | Subscribes To | Why |
-|------------|--------------|-----|
-| Telegraf | `tekra/room/+/telemetry` | Store all real sensor data in QuestDB |
-| Telegraf | `tekra/wokwi/+/telemetry` | Store all simulation data in QuestDB (separate tag) |
-| FastAPI backend | `tekra/room/+/telemetry` | Run anomaly detection & override checks on real data |
-| FastAPI backend | `tekra/wokwi/+/telemetry` | Optional: run same logic on simulation data for testing |
+| Subscriber | Subscribe ke | Tujuan |
+|------------|-------------|--------|
+| Telegraf | `tekra/room/+/telemetry` | Simpan semua telemetry ke QuestDB |
+| FastAPI Backend | `tekra/room/+/telemetry` | Proses anomali, auto-control, broadcast WS |
 
-`+` is the single-level MQTT wildcard (matches exactly one segment, e.g. `A1.01`).
+`+` adalah wildcard satu level MQTT — mencocokkan tepat satu segmen, contoh `A1.01`.
 
-## Room ID Convention
+## Konvensi Room ID
 
-Room IDs follow the format `{building_initial}{floor}.{room_number}`, e.g.:
-- `A1.01` → Building A, Floor 1, Room 01
-- `B2.03` → Building B, Floor 2, Room 03
+Format: `{inisial_gedung}{lantai}.{nomor_ruang}`
+
+| Room ID | Arti |
+|---------|------|
+| `A1.01` | Gedung A, Lantai 1, Ruang 01 |
+| `A1.02` | Gedung A, Lantai 1, Ruang 02 |
+| `A2.03` | Gedung A, Lantai 2, Ruang 03 |
+| `B1.01` | Gedung B, Lantai 1, Ruang 01 |
+
+## Quality of Service (QoS)
+
+| Topik | QoS | Alasan |
+|-------|-----|--------|
+| Telemetry | 0 (At most once) | Data sensor baru akan menggantikan yang lama; kehilangan satu pesan tidak kritis |
+| Commands | 1 (At least once) | Perintah aktuator harus tersampaikan; duplikat tidak berpengaruh (idempotent) |
+
+## Topik Simulasi (Pengembangan & Demo)
+
+Digunakan selama fase pengembangan saat hardware fisik belum tersedia.  
+Backend membedakan sumber `room` vs `wokwi` dari nama topik untuk menonaktifkan anomaly detection pada data simulasi.
+
+| Topik | Keterangan |
+|-------|------------|
+| `tekra/wokwi/{room_id}/telemetry` | Data dari simulasi ESP32 (Wokwi) |
+| `tekra/wokwi/{room_id}/commands` | Command ke simulasi |

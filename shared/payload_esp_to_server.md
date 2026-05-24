@@ -1,86 +1,105 @@
-# Payload: ESP32 → Server
+# Payload: ESP32 → Server (Telemetry)
 
-Sent by the ESP32 periodically (or on significant sensor change) to the backend via MQTT.
+Dikirim oleh ESP32 ke broker MQTT setiap **10 detik**.  
+Backend menerima, memvalidasi, lalu meneruskan ke dashboard via WebSocket.  
+Telegraf secara terpisah menyimpan data ini ke QuestDB untuk riwayat historis.
 
-**MQTT Topic:** `tekra/room/{room_id}/telemetry`
-**Wokwi simulation topic:** `tekra/wokwi/{room_id}/telemetry`
+**Topik MQTT:** `tekra/room/{room_id}/telemetry`
 
-## Example
+---
+
+## Contoh
 
 ```json
 {
-  "device_id": "ESP-1",
-  "building_id": "Gedung-A",
-  "floor": 1,
+  "device_id": "ESP-A1.01",
   "room_id": "A1.01",
-  "timestamp": "2026-05-23T14:00:00Z",
+  "timestamp": "2026-05-24T08:15:00Z",
 
   "environment": {
-    "temperature": 0.0,
-    "humidity": 0.0,
-    "heat_index": 0.0,
-    "air_quality": 0.0,
-    "lux": 0.0,
-    "comfort_score": 0.0
+    "temperature": 27.4,
+    "humidity": 65.0,
+    "heat_index": 29.2,
+    "air_quality": 712,
+    "lux": 380.0,
+    "comfort_score": 72.5
   },
 
   "power": {
-    "voltage": 0.0,
-    "current": 0.0,
-    "power": 0.0,
-    "energy": 0.0,
-    "frequency": 0.0,
-    "pf": 0.0
+    "voltage": 220.0,
+    "current": 4.8,
+    "power": 1003.0,
+    "energy": 0.167,
+    "frequency": 50.0,
+    "pf": 0.95
   },
 
   "occupancy": {
-    "pir_triggered": false,
-    "estimated_people": 0,
-    "activity_score": 0.0,
-    "state": "EMPTY"
+    "pir_triggered": true,
+    "estimated_people": 24,
+    "activity_score": 1.0,
+    "state": "OCCUPIED"
   }
 }
 ```
 
-## Field Reference
+---
+
+## Referensi Field
 
 ### Root
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `device_id` | string | Unique ID of the ESP32 unit |
-| `building_id` | string | Building where the room is located |
-| `floor` | int | Floor number |
-| `room_id` | string | Room identifier, e.g. `"A1.01"` |
-| `timestamp` | string | ISO 8601 UTC timestamp of when data was captured |
+| Field | Tipe | Keterangan |
+|-------|------|------------|
+| `device_id` | string | ID unik unit ESP32, format `ESP-{room_id}` |
+| `room_id` | string | Identitas ruangan, format `{Gedung}{Lantai}.{Nomor}` — contoh `A1.01` |
+| `timestamp` | string | Waktu pembacaan sensor dalam format ISO 8601 UTC |
 
 ### `environment`
 
-| Field | Type | Unit | Description |
-|-------|------|------|-------------|
-| `temperature` | float | °C | Ambient temperature |
-| `humidity` | float | % | Relative humidity |
-| `heat_index` | float | °C | Perceived temperature (temperature + humidity combined) |
-| `air_quality` | float | ppm | CO₂ or VOC air quality reading |
-| `lux` | float | lux | Ambient light level |
-| `comfort_score` | float | 0–100 | Comfort index computed on the ESP32 (fused from temp, humidity, air quality, lux) |
+| Field | Tipe | Satuan | Keterangan |
+|-------|------|--------|------------|
+| `temperature` | float | °C | Suhu udara (rata-rata dua sensor DHT22) |
+| `humidity` | float | % | Kelembaban relatif (rata-rata dua sensor DHT22) |
+| `heat_index` | float | °C | Suhu terasa (*heat index*), dihitung dari suhu + kelembaban |
+| `air_quality` | float | ppm | Estimasi konsentrasi CO₂ / VOC dari sensor gas (ADC) |
+| `lux` | float | lux | Intensitas cahaya dari sensor BH1750 |
+| `comfort_score` | float | 0–100 | Skor kenyamanan ruangan — dihitung di ESP32 dari fusi keempat sensor |
+
+**Formula comfort score** (dihitung ESP32):
+```
+tempScore = 100 - |temp - 22.5| × 6        (bobot 35%)
+humScore  = 100 - |hum - 50| × 2           (bobot 25%)
+airScore  = map(ppm, 400→1500, 100→0)      (bobot 25%)
+luxScore  = 100 jika 200 ≤ lux ≤ 600, 50 selainnya  (bobot 15%)
+```
 
 ### `power`
 
-| Field | Type | Unit | Description |
-|-------|------|------|-------------|
-| `voltage` | float | V | Supply voltage |
-| `current` | float | A | Current draw |
-| `power` | float | W | Active power consumption |
-| `energy` | float | kWh | Cumulative energy consumed (resets on ESP32 restart) |
-| `frequency` | float | Hz | AC frequency |
+| Field | Tipe | Satuan | Keterangan |
+|-------|------|--------|------------|
+| `voltage` | float | V | Tegangan sumber (PLN ~220V) |
+| `current` | float | A | Arus total ruangan (0–15A) |
+| `power` | float | W | Daya aktif (`voltage × current × pf`) |
+| `energy` | float | kWh | Energi kumulatif sejak ESP32 menyala (reset saat restart) |
+| `frequency` | float | Hz | Frekuensi jaringan PLN (50 Hz) |
 | `pf` | float | 0–1 | Power factor |
+
+> **Catatan:** Field `power` dalam JSON ini berisi watt. Saat disimpan ke QuestDB oleh Telegraf, field ini diubah namanya menjadi `power_w` untuk menghindari konflik dengan nama pengukuran.
 
 ### `occupancy`
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `pir_triggered` | bool | Whether the PIR sensor is currently detecting motion |
-| `estimated_people` | int | Estimated number of people in the room (sensor fusion result) |
-| `activity_score` | float | 0–1 activity level derived from sensor fusion |
-| `state` | string | One of: `"EMPTY"`, `"OCCUPIED"`, `"TRANSITIONING"` |
+| Field | Tipe | Keterangan |
+|-------|------|------------|
+| `pir_triggered` | bool | `true` jika salah satu atau kedua sensor PIR aktif saat pembacaan |
+| `estimated_people` | int | Estimasi jumlah orang berdasarkan sensor fusion PIR |
+| `activity_score` | float | Rasio PIR aktif: `0.0` (kosong) · `0.5` (satu PIR) · `1.0` (dua PIR) |
+| `state` | string | Status hunian: `EMPTY` · `TRANSITIONING` · `OCCUPIED` |
+
+**Logika penentuan state:**
+
+| PIR 1 | PIR 2 | State | Estimasi Orang |
+|-------|-------|-------|----------------|
+| ❌ | ❌ | `EMPTY` | 0 |
+| ✅ | ❌ atau ❌ ✅ | `TRANSITIONING` | 1–10 |
+| ✅ | ✅ | `OCCUPIED` | 15–35 |

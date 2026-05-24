@@ -1,50 +1,115 @@
-# Payload: Server → ESP32
+# Payload: Server → ESP32 (Command)
 
-Sent by the backend to the ESP32 whenever the room state needs to change — relay control, mode switch, or AC setpoint adjustment.
+Dikirim oleh backend ke ESP32 melalui broker MQTT ketika:
+- Auto-control menentukan perlu mengubah kondisi aktuator berdasarkan jadwal
+- Staf mengirim perintah manual melalui dashboard (mode OVERRIDE)
+- Mode ruangan berubah (AUTO ↔ OVERRIDE ↔ HOLIDAY)
+- Master relay diaktifkan/dinonaktifkan
 
-**MQTT Topic:** `tekra/room/{room_id}/commands`
+**Topik MQTT:** `tekra/room/{room_id}/commands`
 
-## Example
+---
 
+## Contoh
+
+### OVERRIDE — Lampu dan AC menyala
 ```json
 {
   "room_id": "A1.01",
-  "timestamp": "2026-05-23T14:00:00Z",
-  "mode": "AUTO",
-
+  "timestamp": "2026-05-24T08:15:00Z",
+  "mode": "OVERRIDE",
   "actuators": {
     "master_relay": false,
     "lights": true,
-    "ac": true,
-    "outlets": true
+    "ac": true
   },
-
   "ac_setpoint": 24.0
 }
 ```
 
-## Field Reference
+### AUTO — Kembalikan kontrol ke ESP32
+```json
+{
+  "room_id": "A1.01",
+  "timestamp": "2026-05-24T08:15:00Z",
+  "mode": "AUTO"
+}
+```
+
+### EMERGENCY — Putus seluruh daya ruangan
+```json
+{
+  "room_id": "A1.01",
+  "timestamp": "2026-05-24T08:15:00Z",
+  "mode": "OVERRIDE",
+  "actuators": {
+    "master_relay": true,
+    "lights": false,
+    "ac": false
+  },
+  "ac_setpoint": 24.0
+}
+```
+
+### Pre-conditioning (Auto-Control, jadwal aktif + ruangan kosong)
+```json
+{
+  "room_id": "A1.01",
+  "timestamp": "2026-05-24T08:15:00Z",
+  "mode": "OVERRIDE",
+  "actuators": {
+    "master_relay": false,
+    "lights": false,
+    "ac": true
+  },
+  "ac_setpoint": 26.0
+}
+```
+
+---
+
+## Referensi Field
 
 ### Root
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `room_id` | string | Target room — ESP32 ignores messages not addressed to it |
-| `timestamp` | string | ISO 8601 UTC timestamp of when the command was issued |
-| `mode` | string | `"AUTO"` = system follows schedule; `"OVERRIDE"` = staff is in manual control |
-| `ac_setpoint` | float | Target temperature in °C. Adjust setpoint rather than turning AC on/off to avoid energy spikes |
+| Field | Tipe | Keterangan |
+|-------|------|------------|
+| `room_id` | string | Ruangan target. ESP32 mengabaikan command yang bukan miliknya. |
+| `timestamp` | string | Waktu command diterbitkan (ISO 8601 UTC), ditambahkan otomatis oleh backend |
+| `mode` | string | `AUTO` = ESP32 kontrol sendiri · `OVERRIDE` = ikuti field `actuators` |
+| `ac_setpoint` | float | Target suhu AC dalam °C (default 24.0). Hanya berlaku saat `ac: true` |
 
 ### `actuators`
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `master_relay` | bool | `true` = cut power to the entire room (emergency/fail-safe). Takes priority over all other fields |
-| `lights` | bool | `true` = lights on |
-| `ac` | bool | `true` = AC on |
-| `outlets` | bool | `true` = wall outlets energized |
+| Field | Tipe | Keterangan |
+|-------|------|------------|
+| `master_relay` | bool | `true` = putus seluruh arus ruangan (emergency cutoff). **Mengalahkan semua field lain.** |
+| `lights` | bool | `true` = lampu menyala. Hanya diproses saat `mode: OVERRIDE` |
+| `ac` | bool | `true` = AC menyala. Hanya diproses saat `mode: OVERRIDE` |
 
-## Important Notes
+---
 
-- **`master_relay: true` overrides everything** — when set, the ESP32 must ignore all other actuator fields and cut all power immediately.
-- The ESP32 must compare the received actuator states against its current relay states. If they differ without a command being sent, it must report a **physical override event** back to the server via the telemetry topic.
-- The backend should only send this payload when something actually changes — avoid spamming the ESP32.
+## Aturan Prioritas (di ESP32)
+
+```
+1. master_relay = true  →  semua relay OFF, abaikan semua field lain
+2. mode = "OVERRIDE"    →  terapkan lights dan ac dari actuators
+3. mode = "AUTO"        →  ESP32 memutuskan sendiri berdasarkan sensor:
+                            • Lampu ON  jika lux < 300
+                            • AC    ON  jika OCCUPIED/TRANSITIONING
+                                        ATAU suhu ≥ 28°C
+                                        ATAU CO₂ ≥ 900 ppm
+```
+
+---
+
+## Kapan Backend Mengirim Command
+
+| Pemicu | Siapa yang kirim | Isi |
+|--------|-----------------|-----|
+| Telemetry masuk + jadwal aktif + ruangan KOSONG | Auto-Control (`auto_control.py`) | OVERRIDE, AC on (pre-cool 26°C), lights off |
+| Telemetry masuk + jadwal aktif + ada orang | Auto-Control | AUTO |
+| Telemetry masuk + tidak ada jadwal + EMPTY | Auto-Control | OVERRIDE, semua off |
+| Staf klik tombol di dashboard | REST `POST /rooms/{id}/command` | sesuai input staf |
+| Staf aktifkan master relay | REST `POST /rooms/{id}/command` | master_relay: true |
+| Staf ganti mode ruangan | `PATCH /rooms/{id}/mode` + command | mode baru |

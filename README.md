@@ -1,6 +1,6 @@
 # TEKRA — Sistem Monitoring & Kontrol Ruang Kelas Pintar
 
-TEKRA (*Teknologi Ruang Kelas Adaptif*) adalah sistem IoT untuk memantau kondisi ruang kelas secara real-time, mengotomasi manajemen energi, dan memberikan kontrol penuh kepada staf melalui dashboard terpusat.
+TEKRA (*Teknologi Ruang Kelas Adaptif*) adalah sistem IoT untuk memantau kondisi ruang kelas secara real-time, mengotomasi manajemen energi berdasarkan jadwal kuliah, dan memberikan kontrol penuh kepada staf melalui dashboard terpusat.
 
 ---
 
@@ -8,115 +8,50 @@ TEKRA (*Teknologi Ruang Kelas Adaptif*) adalah sistem IoT untuk memantau kondisi
 
 ![Arsitektur Sistem](Assets/Arsitektur%20Sistem.jpg)
 
----
-
-## Komponen Utama
-
-### 1. Firmware ESP32
-Setiap ruangan dipasang satu ESP32 yang menjalankan FreeRTOS dengan dua task utama:
-
-| Task | Fungsi |
-|------|--------|
-| `taskReadSensors` | Baca semua sensor setiap 10 detik, hitung comfort score, kontrol relay otomatis |
-| `taskMQTT` | Koneksi ke broker, publish telemetry, subscribe command |
-
-**Sensor yang digunakan:**
-- **DHT22 x2** — suhu & kelembaban (sensor fusion: rata-rata dua sensor)
-- **PIR x2** — deteksi kehadiran (sensor fusion: estimasi jumlah orang)
-- **Gas Sensor x2** — kualitas udara / CO₂ (analog ADC)
-- **Potentiometer** — simulasi konsumsi daya (0–15A)
-
-**Relay yang dikontrol:**
-- **Relay Master (pin 17)** — emergency cutoff seluruh ruangan. Saat aktif (HIGH), memutus jalur power ke relay lampu dan AC melalui kontak NC
-- **Relay Lampu (pin 21)** — kontrol pencahayaan
-- **Relay AC (pin 23)** — kontrol pendingin ruangan
-
-**Payload telemetry (ESP32 → Server):**
-```json
-{
-  "device_id": "ESP-REAL-1",
-  "room_id": "A1.01",
-  "timestamp": "2026-05-24T08:00:00Z",
-  "environment": {
-    "temperature": 26.8,
-    "humidity": 64.0,
-    "heat_index": 28.1,
-    "air_quality": 620,
-    "lux": 412,
-    "comfort_score": 78.5
-  },
-  "power": {
-    "voltage": 220.0,
-    "current": 4.2,
-    "power": 879.0,
-    "energy": 0.073,
-    "frequency": 50.0,
-    "pf": 0.95
-  },
-  "occupancy": {
-    "pir_triggered": true,
-    "estimated_people": 22,
-    "activity_score": 1.0,
-    "state": "OCCUPIED"
-  }
-}
 ```
-
-**Payload command (Server → ESP32):**
-```json
-{
-  "actuators": {
-    "master_relay": false,
-    "lights": true,
-    "ac": true
-  },
-  "ac_setpoint": 22.0
-}
+ESP32 (sensor + relay)
+    │  MQTT telemetry
+    ▼
+Mosquitto Broker ──────────────────────────┐
+    │  MQTT subscribe                      │ MQTT subscribe
+    ▼                                      ▼
+Telegraf (json_v2 parser)           FastAPI Backend
+    │  InfluxDB Line Protocol              │
+    ▼                                      ├─ SQLite (rooms, schedules,
+QuestDB (time-series)                      │         holidays, bookings,
+    ▲                                      │         notifications)
+    └──────── REST /history ───────────────┤
+                                           ├─ WebSocket → Dashboard
+                                           └─ REST API → Dashboard
 ```
 
 ---
 
-### 2. Mosquitto MQTT Broker
+## Solusi yang Ditawarkan
 
-Broker sentral yang meneruskan pesan antara ESP32 dan backend.
+### 1. Monitoring Real-Time Multi-Ruangan
+Setiap ruangan dipantau secara terus-menerus oleh ESP32 yang membaca 6 jenis sensor setiap 10 detik. Data dikirim via MQTT, disimpan di QuestDB untuk analisis historis, dan dipush ke dashboard via WebSocket tanpa polling.
 
-**Skema topik:**
-```
-tekra/room/{room_id}/telemetry   ← data sensor real dari hardware
-tekra/room/{room_id}/commands    → perintah kontrol ke hardware
-tekra/wokwi/{room_id}/telemetry  ← data sensor dari simulasi Wokwi
-tekra/wokwi/{room_id}/commands   → perintah kontrol ke simulasi
-```
+### 2. Auto-Control Berbasis Jadwal Kuliah
+Sistem membaca jadwal kuliah dan peminjaman ruangan, lalu secara otomatis menentukan status aktuator (AC dan lampu) berdasarkan konteks waktu real:
 
-Prefix `wokwi` digunakan agar data simulasi tidak memicu anomaly detection di backend.
+| Kondisi | Tindakan Otomatis |
+|---------|-------------------|
+| Dalam jam kuliah + ada orang | ESP32 AUTO (kontrol sendiri) |
+| Dalam jam kuliah + kosong | AC tetap menyala (pre-cool 26°C), lampu mati |
+| Buffer 5 menit pasca kelas + masih ada orang | AC tetap menyala |
+| Tidak ada jadwal + kosong | AC dan lampu mati |
+| Hari libur | Semua aktuator mati, kehadiran memicu alert CRITICAL |
 
----
+**Alur keputusan** berjalan setiap kali data telemetry masuk dari ESP32, menjamin respons dalam hitungan detik.
 
-### 3. Telegraf (Pipeline Data)
+### 3. Manajemen Jadwal & Peminjaman Ruangan
+- **Jadwal Kuliah**: Staf dapat mendaftarkan jadwal ruangan berulang (per hari dalam seminggu) via dashboard.
+- **Peminjaman Ruangan**: Pengguna dapat mengajukan peminjaman untuk tanggal dan jam tertentu. Admin menyetujui atau menolak via dashboard. Peminjaman yang disetujui berlaku setara dengan jadwal kuliah dalam konteks auto-control.
+- **Hari Libur**: Admin mendaftarkan tanggal libur (nasional/kampus). Pada hari libur, auto-control menonaktifkan seluruh sistem dan setiap kehadiran yang terdeteksi memicu notifikasi CRITICAL.
 
-Telegraf berperan sebagai jembatan antara MQTT broker dan QuestDB menggunakan plugin `mqtt_consumer` dengan parser `json_v2`.
-
-```
-MQTT Broker → Telegraf (json_v2 parser) → QuestDB (InfluxDB Line Protocol, port 9009)
-```
-
-Setiap pesan JSON dari ESP32 diurai menjadi satu baris `room_telemetry` di QuestDB, termasuk tag `room_id` dan `source` (room/wokwi) yang diekstrak dari nama topik.
-
----
-
-### 4. FastAPI Backend
-
-Backend async yang menangani tiga tanggung jawab utama:
-
-**a. MQTT Subscriber**
-- Berjalan sebagai background task asyncio
-- Subscribe ke semua topik telemetry
-- Melakukan reconnect otomatis jika koneksi ke broker terputus
-- Broadcast data real-time ke dashboard via WebSocket
-- Jalankan anomaly detection (hanya untuk data real, bukan Wokwi)
-
-**b. Anomaly Detection**
-Aturan deteksi anomali yang aktif berjalan setiap kali data masuk:
+### 4. Deteksi Anomali Otomatis
+Rule engine yang berjalan pada setiap data masuk:
 
 | Rule | Kondisi | Severity |
 |------|---------|----------|
@@ -126,53 +61,158 @@ Aturan deteksi anomali yang aktif berjalan setiap kali data masuk:
 | `LOW_COMFORT` | Comfort score < 30 | WARNING |
 | `UNEXPECTED_PRESENCE` | Ruangan HOLIDAY tapi terdeteksi orang | CRITICAL |
 
-Anomali disimpan ke SQLite dan di-push ke dashboard via WebSocket. Sistem **tidak mengambil tindakan otomatis** — staf harus konfirmasi terlebih dahulu.
+Anomali tidak memicu tindakan otomatis — semua aksi tetap dikonfirmasi staf.
 
-**c. REST API**
-```
-GET    /rooms                          Daftar semua ruangan
-GET    /rooms/{room_id}/latest         Data sensor terbaru
-GET    /rooms/{room_id}/history        Riwayat sensor (time range)
-PATCH  /rooms/{room_id}/mode           Ganti mode: AUTO / OVERRIDE / HOLIDAY
-POST   /rooms/{room_id}/command        Kirim perintah aktuator (hanya mode OVERRIDE)
-GET    /notifications                  Daftar notifikasi anomali
-PATCH  /notifications/{id}/acknowledge Tandai notifikasi sudah dibaca
-GET    /rooms/{room_id}/schedules      Jadwal ruangan
-POST   /rooms/{room_id}/schedules      Tambah jadwal
-WS     /ws                             WebSocket real-time feed
+### 5. Solusi BH1750 & Feedback Loop Cahaya
+Sensor cahaya BH1750 pada perangkat nyata berpotensi mengalami feedback loop: lampu menyala → lux tinggi → lampu mati → lux rendah → lampu menyala lagi. Solusi yang diterapkan:
+
+- **Dual-threshold hysteresis**: Lampu ON jika lux < 200, OFF jika lux > 700. Tidak ada toggle di rentang 200–700.
+- **State lock 5 menit**: Setelah keputusan dibuat, sistem menunggu 5 menit sebelum mengevaluasi ulang.
+- **Wokwi**: Simulasi menggunakan lux yang disintesis secara random, sehingga tidak mengalami feedback loop. Deteksi anomali dinonaktifkan untuk sumber Wokwi.
+
+### 6. Dashboard Glassmorphism Terpadu
+Single-file dashboard (`dashboard/index.html`) dengan 5 seksi:
+
+| Seksi | Isi |
+|-------|-----|
+| **Dasbor Utama** | Statistik agregat (rata-rata daya, kenyamanan), kalender interaktif, notifikasi, form peminjaman cepat |
+| **Tampilan Detail** | Grid kartu semua ruangan, klik → panel detail dengan 6 metrik + 3 grafik historis + panel kontrol penuh |
+| **Jadwal Kuliah** | Lihat jadwal mingguan per ruangan, tambah slot jadwal baru |
+| **Peminjaman** | Ajukan peminjaman, approve/reject pending, lihat semua booking |
+| **Hari Libur** | Daftar libur, tambah, hapus |
+
+---
+
+## Komponen Utama
+
+### Firmware ESP32
+Setiap ruangan dipasang satu ESP32 yang menjalankan FreeRTOS dengan dua task utama:
+
+| Task | Fungsi |
+|------|--------|
+| `taskReadSensors` | Baca semua sensor setiap 10 detik, hitung comfort score, kontrol relay |
+| `taskMQTT` | Koneksi broker, publish telemetry, subscribe command |
+
+**Sensor:**
+- **DHT22 × 2** — suhu & kelembaban (sensor fusion: rata-rata dua sensor)
+- **PIR × 2** — deteksi kehadiran (estimasi jumlah orang)
+- **Gas Sensor × 2** — kualitas udara / CO₂ (analog ADC)
+- **Potentiometer** — simulasi konsumsi daya (0–15A)
+
+**Pin Relay:**
+| Relay | Pin | Fungsi |
+|-------|-----|--------|
+| Master | 17 | Emergency cutoff; HIGH memutus jalur power ke relay lampu dan AC via NC |
+| Lampu | 21 | Kontrol pencahayaan |
+| AC | 23 | Kontrol pendingin |
+
+**Payload telemetry (ESP32 → Server):**
+```json
+{
+  "device_id": "ESP-SIM-1",
+  "room_id": "A1.01",
+  "timestamp": "2026-05-24T08:00:00Z",
+  "environment": {
+    "temperature": 26.8, "humidity": 64.0, "heat_index": 28.1,
+    "air_quality": 620, "lux": 412, "comfort_score": 78.5
+  },
+  "power": {
+    "voltage": 220.0, "current": 4.2, "power": 879.0,
+    "energy": 0.073, "frequency": 50.0, "pf": 0.95
+  },
+  "occupancy": {
+    "pir_triggered": true, "estimated_people": 22,
+    "activity_score": 1.0, "state": "OCCUPIED"
+  }
+}
 ```
 
-**d. Dua Database**
+**Payload command (Server → ESP32):**
+```json
+{
+  "actuators": { "master_relay": false, "lights": true, "ac": true },
+  "ac_setpoint": 26.0
+}
+```
+
+---
+
+### Mosquitto MQTT Broker
+
+**Skema topik:**
+```
+tekra/room/{room_id}/telemetry   ← data sensor real dari hardware
+tekra/room/{room_id}/commands    → perintah kontrol ke hardware
+tekra/wokwi/{room_id}/telemetry  ← data sensor dari simulasi Wokwi
+tekra/wokwi/{room_id}/commands   → perintah kontrol ke simulasi
+```
+
+Prefix `wokwi` memisahkan data simulasi sehingga anomaly detection tidak terpicu oleh noise simulasi.
+
+---
+
+### Telegraf (Pipeline Data)
+
+```
+MQTT Broker → Telegraf (mqtt_consumer + json_v2) → QuestDB (port 9009)
+```
+
+Setiap pesan JSON dari ESP32 menjadi satu baris `room_telemetry` di QuestDB, dengan tag `room_id` dan `source` yang diekstrak dari nama topik.
+
+---
+
+### FastAPI Backend
+
+**Dua Database:**
 | Database | Digunakan untuk |
 |----------|----------------|
-| **QuestDB** | Data time-series sensor (query historis, grafik) |
-| **SQLite** | Data relasional: rooms, schedules, notifications |
+| **QuestDB** | Data time-series sensor (grafik historis, query rentang waktu) |
+| **SQLite** | Data relasional: rooms, schedules, holidays, bookings, notifications |
 
----
+**REST API Lengkap:**
+```
+GET    /rooms                                Daftar semua ruangan
+POST   /rooms                                Daftarkan ruangan baru
+GET    /rooms/{id}                           Detail ruangan
+PATCH  /rooms/{id}/mode                      Ganti mode: AUTO/OVERRIDE/HOLIDAY
+GET    /rooms/{id}/context                   Status jadwal aktif saat ini
+GET    /rooms/{id}/latest                    Data sensor terbaru
+GET    /rooms/{id}/history                   Riwayat sensor (time range)
+GET    /rooms/{id}/schedules                 Jadwal ruangan
+POST   /rooms/{id}/schedules                 Tambah jadwal
+DELETE /schedules/{id}                       Hapus jadwal
+GET    /rooms/{id}/bookings                  Peminjaman ruangan
+POST   /rooms/{id}/bookings                  Ajukan peminjaman
+GET    /bookings                             Semua peminjaman (admin)
+PATCH  /bookings/{id}/status                 Approve/reject peminjaman
+DELETE /bookings/{id}                        Hapus peminjaman
+GET    /holidays                             Daftar hari libur
+POST   /holidays                             Tambah hari libur
+DELETE /holidays/{id}                        Hapus hari libur
+POST   /rooms/{id}/command                   Kirim command aktuator (OVERRIDE only)
+GET    /notifications                        Daftar notifikasi anomali
+PATCH  /notifications/{id}/acknowledge       Tandai sudah dibaca
+WS     /ws                                   WebSocket real-time feed
+GET    /health                               Status backend, MQTT, database
+```
 
-### 5. Mode Operasi Ruangan
-
+**Mode Operasi Ruangan:**
 | Mode | Perilaku |
 |------|----------|
-| `AUTO` | Sistem mengikuti jadwal ruangan. Command aktuator ditolak (409). |
-| `OVERRIDE` | Staf dapat mengontrol aktuator secara manual via API. |
-| `HOLIDAY` | Ruangan tidak aktif. Kehadiran yang terdeteksi memicu notifikasi CRITICAL. |
+| `AUTO` | Sistem mengikuti jadwal. Auto-control aktif. |
+| `OVERRIDE` | Staf kontrol manual via API. Auto-control diabaikan. |
+| `HOLIDAY` | Sistem mati total. Kehadiran → CRITICAL alert. |
 
 ---
 
-### 6. Simulasi Wokwi
+### Simulasi Wokwi
 
-Untuk keperluan pengembangan dan demonstrasi, ESP32 dapat disimulasikan menggunakan Wokwi + PlatformIO tanpa hardware fisik.
+Dua simulasi ESP32 berjalan paralel untuk dua ruangan:
 
-```
-Simulation/ESP_1_test/
-├── src/main.cpp        Firmware ESP32 (FreeRTOS)
-├── diagram.json        Skema rangkaian elektronik
-├── platformio.ini      Konfigurasi build
-└── wokwi.toml          Mapping firmware ke simulator
-```
-
-Simulasi terhubung ke broker MQTT yang sama via WiFi `Wokwi-GUEST` dan mempublish ke topik `tekra/wokwi/+/telemetry`.
+| Simulasi | Room ID | Device ID | Topik |
+|----------|---------|-----------|-------|
+| ESP_1_test | A1.01 | ESP-SIM-1 | tekra/wokwi/A1.01/+ |
+| ESP_2_test | A1.02 | ESP-SIM-2 | tekra/wokwi/A1.02/+ |
 
 ---
 
@@ -182,12 +222,12 @@ Simulasi terhubung ke broker MQTT yang sama via WiFi `Wokwi-GUEST` dan mempublis
 - Docker & Docker Compose
 - Python 3.12+
 - PlatformIO (untuk firmware/simulasi)
-- Wokwi VS Code Extension (untuk simulasi)
-- `mosquitto-clients` (`sudo apt install mosquitto-clients`)
+- Wokwi VS Code Extension
 
-### 1. Jalankan infrastruktur (Broker + Database)
+### 1. Jalankan infrastruktur
 ```bash
 docker compose up -d
+# Mosquitto :1883, QuestDB :8812/:9009, Telegraf
 ```
 
 ### 2. Jalankan Backend
@@ -196,22 +236,23 @@ cd backend/app
 python3 -m venv venv
 venv/bin/pip install -r requirements.txt
 PYTHONUNBUFFERED=1 venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
+# Atau untuk pengembangan (auto-reload):
+# venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 ### 3. Jalankan Simulasi Wokwi
 ```bash
-cd Simulation/ESP_1_test
-pio run                  # build firmware
-# Buka VS Code → Wokwi: Start Simulator
+cd Simulation/ESP_1_test && pio run   # build ESP 1
+cd Simulation/ESP_2_test && pio run   # build ESP 2
+# Buka VS Code → Wokwi: Start Simulator (untuk masing-masing)
 ```
 
-### 4. Test Pipeline MQTT
+### 4. Buka Dashboard
 ```bash
-# Kirim data normal (topik Wokwi, tidak trigger anomali)
-./shared/test_payload.sh
-
-# Kirim data anomali (topik real, trigger notifikasi)
-./shared/test_payload.sh anomaly
+# Buka di browser:
+xdg-open dashboard/index.html
+# atau
+firefox dashboard/index.html
 ```
 
 ### 5. Cek kesehatan sistem
@@ -220,45 +261,54 @@ curl http://localhost:8000/health
 # {"status":"ok","mqtt":true,"database":true}
 ```
 
+### 6. Test pipeline MQTT manual
+```bash
+mosquitto_pub -h localhost -t "tekra/wokwi/A1.01/telemetry" -f shared/payload_esp_to_server.json
+```
+
 ---
 
 ## Struktur Direktori
 
 ```
-tekra/
+lomba/
 ├── docker-compose.yml          Mosquitto + QuestDB + Telegraf
-├── mosquitto/
-│   └── mosquitto.conf
-├── telegraf/
-│   └── telegraf.conf
+├── mosquitto/mosquitto.conf
+├── telegraf/telegraf.conf
 ├── backend/
 │   └── app/
 │       ├── main.py             FastAPI app + lifespan
 │       ├── core/
 │       │   ├── config.py       Settings dari .env
 │       │   ├── database.py     QuestDB queries
-│       │   └── sqlite.py       SQLite schema + helpers
+│       │   └── sqlite.py       SQLite schema + helper
 │       ├── api/
-│       │   ├── rooms.py        CRUD ruangan + mode
+│       │   ├── rooms.py        CRUD ruangan + mode + context
 │       │   ├── sensors.py      Query data sensor
 │       │   ├── schedules.py    Jadwal ruangan
+│       │   ├── holidays.py     Hari libur
+│       │   ├── bookings.py     Peminjaman ruangan
 │       │   ├── notifications.py Notifikasi anomali
-│       │   ├── override.py     Kirim command aktuator
+│       │   ├── override.py     Command aktuator
 │       │   └── ws.py           WebSocket endpoint
 │       ├── mqtt/
-│       │   ├── subscriber.py   MQTT listener + reconnect
-│       │   └── publisher.py    Kirim command ke ESP32
+│       │   └── subscriber.py   MQTT listener + reconnect + dispatch
 │       ├── models/
 │       │   ├── sensor.py       Schema payload ESP32
 │       │   ├── room.py         Schema ruangan
+│       │   ├── schedule.py     Schema jadwal, holiday, booking
 │       │   └── command.py      Schema command aktuator
 │       └── services/
-│           └── anomaly.py      Rule engine deteksi anomali
+│           ├── anomaly.py      Rule engine deteksi anomali
+│           ├── schedule_context.py  Evaluasi jadwal aktif (WIB)
+│           └── auto_control.py     Kirim command berbasis jadwal
+├── dashboard/
+│   └── index.html              Single-file dashboard (HTML+CSS+JS)
 ├── Simulation/
-│   └── ESP_1_test/             Proyek Wokwi + PlatformIO
+│   ├── ESP_1_test/             Wokwi sim → room A1.01
+│   └── ESP_2_test/             Wokwi sim → room A1.02
 └── shared/
-    ├── mqtt_topics.md          Kontrak topik MQTT
+    ├── mqtt_topics.md
     ├── payload_esp_to_server.json
-    ├── payload_server_to_esp.json
-    └── test_payload.sh         Script test pipeline MQTT
+    └── payload_server_to_esp.json
 ```
