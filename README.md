@@ -8,25 +8,6 @@ Sistem IoT untuk memantau kondisi ruang kelas secara real-time, mengotomasi mana
 
 ![Arsitektur Sistem](Assets/Arsitektur%20Sistem.jpg)
 
-```
-ESP32 (sensor + relay)
-    │  MQTT telemetry
-    ▼
-Mosquitto Broker ──────────────────────────┐
-    │  MQTT subscribe                      │ MQTT subscribe
-    ▼                                      ▼
-Telegraf (json_v2 parser)           FastAPI Backend
-    │  InfluxDB Line Protocol              │
-    ▼                                      ├─ SQLite (rooms, schedules,
-QuestDB (time-series)                      │         holidays, bookings,
-    ▲                                      │         notifications)
-    └──────── REST /history ───────────────┤
-                                           ├─ WebSocket → Dashboard
-                                           └─ REST API → Dashboard
-```
-
----
-
 ## Solusi yang Ditawarkan
 
 ### 1. Monitoring Real-Time Multi-Ruangan
